@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Navisworks MCP Bridge - Autodesk application bundle.
+
+  Navisworks loads bundles from %ProgramData%\Autodesk\ApplicationPlugins\
+  on startup and picks the component whose SeriesMin/SeriesMax matches
+  its own release: Nw23 = Navisworks 2026, Nw24 = Navisworks 2027.
+  Each DLL is built against that release's API (see NavisworksVersion
+  in NavisworksMcpAddin.csproj).
+-->
+<ApplicationPackage SchemaVersion="1.0"
+                    AutodeskProduct="Navisworks"
+                    Name="MCP Bridge"
+                    Description="HTTP bridge for the Model Context Protocol server"
+                    AppVersion="2.1.0"
+                    FriendlyVersion="2.1"
+                    ProductType="Application"
+                    SupportedLocales="Enu"
+                    Author="ADSK"
+                    ProductCode="{9f6f9d42-a802-40c3-8aef-9df5bbe920f5}"
+                    UpgradeCode="{f3ca5cd0-5082-49ba-a5d5-8522ee22b45c}">
+  <CompanyDetails Name="ADSK" Url="" Email="" Phone="" />
+  <Components>
+    <RuntimeRequirements OS="Win64"
+                         Platform="NAVMAN|NAVSIM"
+                         SeriesMin="Nw23"
+                         SeriesMax="Nw23" />
+    <ComponentEntry Version="2.1.0"
+                    AppType="ManagedPlugin"
+                    ModuleName="./Contents/2026/MCPBridge.dll" />
+  </Components>
+  <Components>
+    <RuntimeRequirements OS="Win64"
+                         Platform="NAVMAN|NAVSIM"
+                         SeriesMin="Nw24"
+                         SeriesMax="Nw24" />
+    <ComponentEntry Version="2.1.0"
+                    AppType="ManagedPlugin"
+                    ModuleName="./Contents/2027/MCPBridge.dll" />
+  </Components>
+</ApplicationPackage>

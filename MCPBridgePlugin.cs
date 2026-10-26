@@ -1,5 +1,5 @@
 // =============================================================================
-//  Navisworks MCP Bridge — full implementation (35 routes)
+//  Navisworks MCP Bridge — full implementation (36 routes)
 // =============================================================================
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
@@ -10,7 +10,7 @@
 //
 //  Routes
 //  ──────
-//  Health/Document  (3)  /health, /document/info, /document/statistics
+//  Health/Document  (4)  /health, /document/{info,statistics,tree}
 //  Selection        (6)  /selection/{get,select-all,deselect-all,invert,
 //                                   from-set,by-name}
 //  Sets             (6)  /sets/{list,selection/create,search/create,delete,
@@ -123,7 +123,7 @@ namespace NavisworksMcpAddin
                 MessageBox.Show(
                     $"Navisworks MCP Bridge {Version}\r\n\r\n" +
                     $"Status: {status}\r\n" +
-                    $"Routes: 35\r\n" +
+                    $"Routes: 36\r\n" +
                     $"Log:    {LogPath}",
                     "Navisworks MCP Bridge",
                     MessageBoxButtons.OK,
@@ -235,7 +235,7 @@ namespace NavisworksMcpAddin
                     ok = true,
                     version = Version,
                     port = Port,
-                    routes = 35
+                    routes = 36
                 };
             }
 
@@ -247,6 +247,7 @@ namespace NavisworksMcpAddin
                     // Document
                     case "/document/info": return Handlers.DocumentInfo();
                     case "/document/statistics": return Handlers.DocumentStatistics();
+                    case "/document/tree": return Handlers.DocumentTree(body);
 
                     // Selection
                     case "/selection/get": return Handlers.SelectionGet();
@@ -433,6 +434,59 @@ namespace NavisworksMcpAddin
                                 .Select(kv => new { className = kv.Key, count = kv.Value })
                                 .ToList()
             };
+        }
+
+        // Tree of sub-model files (.nwd/.nwc/.ifc/...). Recurses only into
+        // file nodes, never into the geometry beneath them, so it stays fast
+        // on large federated models. Returned flat in pre-order with a depth.
+        public static object DocumentTree(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            int maxDepth = GetInt(body, "max_depth", 50);
+
+            var nodes = new List<object>();
+            foreach (Model m in doc.Models)
+            {
+                if (m.RootItem != null) CollectFileNodes(m.RootItem, 0, maxDepth, nodes);
+            }
+
+            return new { count = nodes.Count, nodes };
+        }
+
+        private static readonly string[] ModelFileExtensions =
+        {
+            ".nwd", ".nwc", ".nwf", ".ifc", ".rvt", ".dwg", ".dgn", ".fbx"
+        };
+
+        private static bool IsFileNode(ModelItem mi)
+        {
+            if (mi.HasModel) return true;
+            if (string.Equals(mi.ClassDisplayName, "File", StringComparison.OrdinalIgnoreCase)) return true;
+            string n = mi.DisplayName ?? "";
+            return ModelFileExtensions.Any(ext => n.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void CollectFileNodes(ModelItem item, int depth, int maxDepth, List<object> output)
+        {
+            int otherChildren = 0;
+            var fileChildren = new List<ModelItem>();
+            foreach (ModelItem child in item.Children)
+            {
+                if (IsFileNode(child)) fileChildren.Add(child); else otherChildren++;
+            }
+
+            output.Add(new
+            {
+                depth,
+                displayName = item.DisplayName ?? "",
+                className = item.ClassDisplayName ?? "",
+                sourceFile = item.HasModel ? (item.Model.SourceFileName ?? "") : "",
+                fileChildren = fileChildren.Count,
+                otherChildren
+            });
+
+            if (depth >= maxDepth) return;
+            foreach (ModelItem child in fileChildren) CollectFileNodes(child, depth + 1, maxDepth, output);
         }
 
         // ════════════════════════════════════════════════════════════════════

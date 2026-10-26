@@ -104,6 +104,12 @@ TOOLS = [
     Tool(name="get_model_statistics",
          description="Element counts grouped by class.",
          inputSchema={"type": "object", "properties": {}, "required": []}),
+    Tool(name="get_model_tree",
+         description="Tree of sub-model files (.nwd/.nwc/.ifc/...) in the open document, "
+                     "flat in pre-order with a depth per node. Does not descend into geometry.",
+         inputSchema={"type": "object",
+                      "properties": {"max_depth": {"type": "number", "default": 50}},
+                      "required": []}),
 
     # ── Clash detection ────────────────────────────────────────────
     Tool(name="list_clash_tests",
@@ -322,6 +328,7 @@ ROUTES: dict[str, str] = {
 
     "get_document_info":         "/document/info",
     "get_model_statistics":      "/document/statistics",
+    "get_model_tree":            "/document/tree",
 
     "list_clash_tests":          "/clash/list",
     "create_clash_test":         "/clash/create",

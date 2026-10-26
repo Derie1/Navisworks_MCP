@@ -1,5 +1,9 @@
 # Navisworks MCP Bridge
 
+> **Fork of [Aitology/Navisworks_MCP](https://github.com/Aitology/Navisworks_MCP)** by Muhammad Osama.
+> Changes in this fork: builds for Navisworks 2026 and 2027, installation as an
+> Autodesk bundle via `INSTALL.BAT`, and the `get_model_tree` tool.
+
 > Control Autodesk Navisworks from Claude — clash detection, clash grouping, selection sets, search sets, viewpoints, properties, color overrides, and 30+ other operations — through the Model Context Protocol.
 
 <p align="center">
@@ -42,6 +46,28 @@ Install these once on the machine that runs Navisworks:
 | **An MCP client** | Claude Desktop, Claude Code, Cline, Continue, etc. | claude.ai/download (or any) |
 
 Optional but recommended: **Visual Studio 2022 17.8+** if you want IDE intellisense for the addin code. Building from the command line works without it.
+
+## Install — prebuilt (2026 / 2027)
+
+Close Navisworks and double-click **`INSTALL.BAT`**. It copies
+`release\MCPBridge.bundle\` to `%ProgramData%\Autodesk\ApplicationPlugins\MCPBridge.bundle\`.
+Navisworks Manage/Simulate 2026 and 2027 load the bundle on startup and pick
+the DLL built for their API (`Contents\2026\` = Nw23, `Contents\2027\` = Nw24,
+see `PackageContents.xml`). The installer also removes old loose-folder installs
+(`Plugins\MCPBridge`, `Plugins\NavisworksMcpAddin`) so the plugin is not loaded twice.
+
+The MCP server script is installed with it, at
+`C:\ProgramData\Autodesk\ApplicationPlugins\MCPBridge.bundle\Contents\server_http.py` —
+point your MCP client config there.
+
+```bat
+INSTALL.BAT              :: install / update
+INSTALL.BAT /uninstall   :: remove the plugin
+```
+
+To rebuild a release: `dotnet build -c Release -p:NavisworksVersion=2027`
+(output goes to `bin\Release\2027\`), then copy `MCPBridge.dll` into
+`release\MCPBridge.bundle\Contents\2027\`.
 
 ## Install — quick path
 

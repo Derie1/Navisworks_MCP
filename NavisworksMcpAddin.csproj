@@ -36,21 +36,18 @@
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
-  <!-- Built-in .NET Framework 4.8 references that ship with Windows -->
-  <ItemGroup>
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Net.Http" />
-  </ItemGroup>
-
-  <!-- No NuGet packages — JSON is hand-rolled to avoid version conflicts with
-       whatever System.Text.Json copy Navisworks itself happens to load. -->
-
-  <!-- Navisworks API references — pass install dir on the command line if non-default -->
+  <!-- Navisworks API references.
+       Pick the target release with -p:NavisworksVersion=2026|2027 (default 2026);
+       pass -p:NavisworksInstallDir=... too if Navisworks is not in the default place.
+       Each version gets its own output folder: bin\Release\2026\, bin\Release\2027\ -->
   <PropertyGroup>
-    <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Manage 2027</NavisworksInstallDir>
+    <NavisworksVersion Condition="'$(NavisworksVersion)' == ''">2026</NavisworksVersion>
+    <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Manage $(NavisworksVersion)</NavisworksInstallDir>
+    <OutputPath>bin\$(Configuration)\$(NavisworksVersion)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\$(NavisworksVersion)\</IntermediateOutputPath>
   </PropertyGroup>
 
+  <!-- Built-in .NET Framework 4.8 references that ship with Windows -->
   <ItemGroup>
     <Reference Include="Autodesk.Navisworks.Api">
       <HintPath>$(NavisworksInstallDir)\Autodesk.Navisworks.Api.dll</HintPath>
@@ -60,6 +57,12 @@
       <HintPath>$(NavisworksInstallDir)\Autodesk.Navisworks.Clash.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
+
+  <!-- No NuGet packages — JSON is hand-rolled to avoid version conflicts with
+       whatever System.Text.Json copy Navisworks itself happens to load. -->
 
 </Project>
