@@ -45,6 +45,8 @@
     <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Manage $(NavisworksVersion)</NavisworksInstallDir>
     <OutputPath>bin\$(Configuration)\$(NavisworksVersion)\</OutputPath>
     <IntermediateOutputPath>obj\$(Configuration)\$(NavisworksVersion)\</IntermediateOutputPath>
+    <!-- For API differences between releases: #if NAVIS_2027_OR_LATER -->
+    <DefineConstants Condition="$(NavisworksVersion) &gt;= 2027">$(DefineConstants);NAVIS_2027_OR_LATER</DefineConstants>
   </PropertyGroup>
 
   <!-- Built-in .NET Framework 4.8 references that ship with Windows -->
@@ -60,6 +62,14 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- Ribbon: layout + button icons next to the DLL. Navisworks looks for the
+       layout in the folder of its UI language, so ship it for German too. -->
+  <ItemGroup>
+    <None Include="en-US\MCPBridge.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="en-US\MCPBridge.xaml" Link="de-DE\MCPBridge.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Images\MCPBridge_*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- No NuGet packages — JSON is hand-rolled to avoid version conflicts with

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ribbon layout for MCPBridgePlugin ([RibbonLayout("MCPBridge.xaml")]).
+  Navisworks reads it from <dll folder>\<UI language>\MCPBridge.xaml; the Ids
+  match the RibbonTab / Command attributes in MCPBridgePlugin.cs.
+-->
+<RibbonControl
+    x:Uid="MCPBridge.Ribbon"
+    xmlns="clr-namespace:Autodesk.Windows;assembly=AdWindows"
+    xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:adwi="clr-namespace:Autodesk.Internal.Windows;assembly=AdWindows"
+    xmlns:system="clr-namespace:System;assembly=mscorlib"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:Autodesk.Navisworks.Gui.Roamer.AIRLook;assembly=navisworks.gui.roamer">
+
+    <RibbonTab Id="ID_AICompanionTab" KeyTip="AI">
+        <RibbonPanel x:Uid="RibbonPanel_AICompanion">
+            <RibbonPanelSource x:Uid="RibbonPanelSource_AICompanion" KeyTip="AC" Title="AI companion">
+
+                <local:NWRibbonButton
+                    x:Uid="Button_MCPBridge"
+                    Id="ID_MCPBridgeButton"
+                    Size="Large"
+                    KeyTip="M"
+                    ShowText="True"
+                    Text="MCP Bridge"
+                    Orientation="Vertical"/>
+
+            </RibbonPanelSource>
+        </RibbonPanel>
+    </RibbonTab>
+</RibbonControl>

@@ -37,10 +37,18 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
+from mcp.types import Tool, TextContent, ImageContent, CallToolResult, ListToolsResult
 
 ADDIN_BASE = "http://localhost:8765"
 ADDIN_TIMEOUT = 30  # seconds
+# Opening, saving or refreshing a federated model, running clash tests and
+# writing reports can take many minutes on large projects.
+LONG_TIMEOUT = 3600  # seconds
+LONG_ROUTES = {
+    "/model/open", "/model/append", "/model/update", "/model/save",
+    "/model/publish", "/model/convert", "/clash/run", "/clash/auto-group",
+    "/clash/report",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -57,7 +65,8 @@ def _post(path: str, payload: dict | None = None) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=ADDIN_TIMEOUT) as resp:
+        timeout = LONG_TIMEOUT if path in LONG_ROUTES else ADDIN_TIMEOUT
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         # The plugin returns 500 with a JSON body for handler errors.
@@ -73,8 +82,8 @@ def _post(path: str, payload: dict | None = None) -> dict:
             "hint": (
                 f"Cannot reach the Navisworks addin at {ADDIN_BASE}. "
                 "Is Navisworks running with the MCP Bridge plugin installed? "
-                "Open Navisworks → Add-Ins ribbon → click 'MCP Bridge' "
-                "to verify the listener started."
+                "In Navisworks, click the 'AI companion' ribbon tab → "
+                "'MCP Bridge' to start the bridge."
             ),
         }
     except Exception as e:
@@ -313,6 +322,183 @@ Tool(name="set_clash_group_status",
     Tool(name="get_current_viewpoint",
          description="Return the current camera position and projection.",
          inputSchema={"type": "object", "properties": {}, "required": []}),
+
+    # ── Model files ────────────────────────────────────────────────
+    Tool(name="list_model_files",
+         description=("List the files loaded in the current document with their index, whether "
+                      "the file and its source (e.g. the IFC) exist on disk, and modification "
+                      "times. An appended .nwf expands into its files; an appended .nwd is one "
+                      "entry whose 'contains' lists the files it was built from. Use the index "
+                      "with remove_file."),
+         inputSchema={"type": "object", "properties": {}, "required": []}),
+    Tool(name="open_document",
+         description=("Open an .nwf/.nwd/.nwc or any supported source file, replacing the current "
+                      "document. Refuses if the current document has unsaved changes unless "
+                      "discard_changes is true. Navisworks may show a dialog (e.g. missing "
+                      "files) that someone has to close."),
+         inputSchema={"type": "object", "properties": {
+             "path":            {"type": "string", "description": "Full path of the file to open."},
+             "discard_changes": {"type": "boolean", "default": False},
+         }, "required": ["path"]}),
+    Tool(name="new_document",
+         description="Clear the current document (File > New).",
+         inputSchema={"type": "object", "properties": {
+             "discard_changes": {"type": "boolean", "default": False},
+         }, "required": []}),
+    Tool(name="append_files",
+         description="Append one or more files (IFC, NWC, NWD, NWF, RVT, DWG, ...) to the current document.",
+         inputSchema={"type": "object", "properties": {
+             "paths": {"type": "array", "items": {"type": "string"}, "description": "Full file paths."},
+         }, "required": ["paths"]}),
+    Tool(name="remove_file",
+         description=("Remove a loaded file from the current document, by index or by name "
+                      "(as shown by list_model_files). Prefer index when names repeat."),
+         inputSchema={"type": "object", "properties": {
+             "index": {"type": "integer"},
+             "name":  {"type": "string", "description": "Model name or file name, e.g. 'ARC.ifc'."},
+         }, "required": []}),
+    Tool(name="update_files",
+         description=("Reload every loaded file that changed on disk since it was loaded "
+                      "(the 'Refresh' command). Returns the file list afterwards."),
+         inputSchema={"type": "object", "properties": {}, "required": []}),
+    Tool(name="save_document",
+         description=("Save the current document as .nwf (references the source files) or "
+                      ".nwd (everything embedded). Without path, saves over the current file. "
+                      "version picks the file format: 'current' (default) or a year from 2015 "
+                      "on, e.g. '2026' so Navisworks 2026 can open a file saved in 2027. "
+                      "2016-2025 share one format. Saving .nwd keeps the open document as it "
+                      "is (keep_open, default); keep_open=false makes the .nwd the open "
+                      "document, its files collapsing into one model - needed before publish_nwd."),
+         inputSchema={"type": "object", "properties": {
+             "path":      {"type": "string", "description": "Target .nwf or .nwd path."},
+             "version":   {"type": "string", "default": "current"},
+             "keep_open": {"type": "boolean", "default": True},
+         }, "required": []}),
+    Tool(name="publish_nwd",
+         description=("Publish the open .nwd to a new .nwd with export options: format version, "
+                      "embedded external references, without hidden items, or without object "
+                      "properties (for handing a model to third parties). Works only while an "
+                      ".nwd is the open document (Navisworks restriction)."),
+         inputSchema={"type": "object", "properties": {
+             "path":             {"type": "string"},
+             "version":          {"type": "string", "default": "current"},
+             "embed_xrefs":      {"type": "boolean", "default": False},
+             "exclude_hidden":   {"type": "boolean", "default": False},
+             "strip_properties": {"type": "boolean", "default": False},
+             "title":            {"type": "string"},
+             "author":           {"type": "string"},
+             "comments":         {"type": "string"},
+             "allow_resave":     {"type": "boolean", "default": True},
+         }, "required": ["path"]}),
+    Tool(name="convert_to_nwd",
+         description=("Convert files to .nwd one by one: open each file and save it as "
+                      "<name>.nwd next to it or in output_dir. Replaces the current document "
+                      "while running and reopens it at the end (restore_document)."),
+         inputSchema={"type": "object", "properties": {
+             "paths":            {"type": "array", "items": {"type": "string"}},
+             "output_dir":       {"type": "string"},
+             "version":          {"type": "string", "default": "current"},
+             "overwrite":        {"type": "boolean", "default": False},
+             "restore_document": {"type": "boolean", "default": True},
+             "discard_changes":  {"type": "boolean", "default": False},
+         }, "required": ["paths"]}),
+
+    # ── View ───────────────────────────────────────────────────────
+    Tool(name="capture_view",
+         description=("Render the current Navisworks view and return it as an image, so you can "
+                      "see the model. Optionally also save the PNG to save_path."),
+         inputSchema={"type": "object", "properties": {
+             "width":     {"type": "integer", "default": 1280},
+             "height":    {"type": "integer", "description": "Default keeps the view's aspect ratio."},
+             "style":     {"type": "string", "enum": ["overlay", "scene", "raytrace"], "default": "overlay"},
+             "save_path": {"type": "string"},
+         }, "required": []}),
+    Tool(name="zoom_to_elements",
+         description="Zoom the camera to the current selection, or to a selection/search set.",
+         inputSchema={"type": "object", "properties": {
+             "set_name": {"type": "string"},
+             "padding":  {"type": "number", "default": 0, "description": "Extra margin in model units."},
+         }, "required": []}),
+    Tool(name="set_section_box",
+         description="Turn on a section box around the current selection or a set, and zoom to it.",
+         inputSchema={"type": "object", "properties": {
+             "set_name": {"type": "string"},
+             "padding":  {"type": "number", "default": 0, "description": "Extra margin in model units."},
+             "zoom":     {"type": "boolean", "default": True},
+         }, "required": []}),
+    Tool(name="clear_section",
+         description="Switch sectioning off in the current view.",
+         inputSchema={"type": "object", "properties": {}, "required": []}),
+    Tool(name="get_section",
+         description="Return the current view's sectioning as Navisworks ClipPlaneSet JSON.",
+         inputSchema={"type": "object", "properties": {}, "required": []}),
+
+    # ── Clash results ──────────────────────────────────────────────
+    Tool(name="get_clash_summary",
+         description="Per clash test: last run, total results, counts by status, number of groups.",
+         inputSchema={"type": "object", "properties": {
+             "test_name": {"type": "string", "description": "Omit for all tests."},
+         }, "required": []}),
+    Tool(name="set_clash_result_status",
+         description="Set the status of individual clash results (also inside groups).",
+         inputSchema={"type": "object", "properties": {
+             "test_name":   {"type": "string"},
+             "clash_names": {"type": "array", "items": {"type": "string"}},
+             "status":      {"type": "string", "enum": ["New", "Active", "Reviewed", "Approved", "Resolved"]},
+         }, "required": ["test_name", "clash_names", "status"]}),
+    Tool(name="assign_clashes",
+         description="Assign clash results to a person or company. Empty assignee unassigns.",
+         inputSchema={"type": "object", "properties": {
+             "test_name":   {"type": "string"},
+             "clash_names": {"type": "array", "items": {"type": "string"}},
+             "assignee":    {"type": "string"},
+         }, "required": ["test_name", "clash_names", "assignee"]}),
+    Tool(name="add_clash_comment",
+         description="Add a comment to clash results.",
+         inputSchema={"type": "object", "properties": {
+             "test_name":      {"type": "string"},
+             "clash_names":    {"type": "array", "items": {"type": "string"}},
+             "comment":        {"type": "string"},
+             "comment_status": {"type": "string", "enum": ["New", "Active", "Approved", "Resolved"], "default": "New"},
+             "author":         {"type": "string", "description": "Defaults to the Windows user."},
+         }, "required": ["test_name", "clash_names", "comment"]}),
+    Tool(name="zoom_to_clash",
+         description=("Show one clash like Clash Detective does: select both items, colour item 1 "
+                      "red and item 2 green, zoom to it. section=true adds a section box; "
+                      "capture=true also returns an image of the view."),
+         inputSchema={"type": "object", "properties": {
+             "test_name":  {"type": "string"},
+             "clash_name": {"type": "string"},
+             "highlight":  {"type": "boolean", "default": True},
+             "section":    {"type": "boolean", "default": False},
+             "padding":    {"type": "number", "description": "Margin in model units; default = size of the clash box."},
+             "capture":    {"type": "boolean", "default": False},
+             "width":      {"type": "integer", "default": 1280},
+         }, "required": ["test_name", "clash_name"]}),
+    Tool(name="auto_group_clashes",
+         description=("Group all ungrouped results of a top-level clash test in one go. "
+                      "group_by: 'model' (file of item A/B, default both: 'A.ifc × B.ifc'), "
+                      "'level' (nearest storey/level node, else Element/Level property), or "
+                      "'property' (category + property display names, read from the item or "
+                      "its ancestors). side: a, b or both."),
+         inputSchema={"type": "object", "properties": {
+             "test_name": {"type": "string"},
+             "group_by":  {"type": "string", "enum": ["model", "level", "property"], "default": "model"},
+             "side":      {"type": "string", "enum": ["a", "b", "both"]},
+             "category":  {"type": "string"},
+             "property":  {"type": "string"},
+             "prefix":    {"type": "string", "description": "Text put before every group name."},
+         }, "required": ["test_name"]}),
+    Tool(name="export_clash_report",
+         description=("Write a clash report as .csv (opens in Excel) or .html: test, group, "
+                      "clash, status, distance, assignee, items and their model files, "
+                      "centre point, comments."),
+         inputSchema={"type": "object", "properties": {
+             "path":      {"type": "string", "description": "Target .csv or .html path."},
+             "test_name": {"type": "string", "description": "Omit for all tests."},
+             "statuses":  {"type": "array", "items": {"type": "string"},
+                           "description": "Only these statuses, e.g. ['New', 'Active']."},
+         }, "required": ["path"]}),
 ]
 
 
@@ -329,6 +515,30 @@ ROUTES: dict[str, str] = {
     "get_document_info":         "/document/info",
     "get_model_statistics":      "/document/statistics",
     "get_model_tree":            "/document/tree",
+
+    "list_model_files":          "/model/files",
+    "open_document":             "/model/open",
+    "new_document":              "/model/new",
+    "append_files":              "/model/append",
+    "remove_file":               "/model/remove",
+    "update_files":              "/model/update",
+    "save_document":             "/model/save",
+    "publish_nwd":               "/model/publish",
+    "convert_to_nwd":            "/model/convert",
+
+    "capture_view":              "/view/capture",
+    "zoom_to_elements":          "/view/zoom",
+    "set_section_box":           "/view/section-box",
+    "clear_section":             "/view/section-clear",
+    "get_section":               "/view/section-get",
+
+    "get_clash_summary":         "/clash/summary",
+    "set_clash_result_status":   "/clash/result/status",
+    "assign_clashes":            "/clash/result/assign",
+    "add_clash_comment":         "/clash/result/comment",
+    "zoom_to_clash":             "/clash/result/zoom",
+    "auto_group_clashes":        "/clash/auto-group",
+    "export_clash_report":       "/clash/report",
 
     "list_clash_tests":          "/clash/list",
     "create_clash_test":         "/clash/create",
@@ -397,7 +607,15 @@ def _remap(tool_name: str, args: dict) -> dict:
 
 
 def _ok(data: Any) -> CallToolResult:
-    return CallToolResult(content=[TextContent(type="text", text=json.dumps(data, indent=2))], isError=False)
+    content = []
+    if isinstance(data, dict) and "image_png_base64" in data:
+        # capture_view / zoom_to_clash: hand the picture to the client as an image.
+        data = dict(data)
+        content.append(ImageContent(type="image", data=data.pop("image_png_base64"), mimeType="image/png"))
+    # Plugin handler failures come back as {"error": ..., "detail": ...}.
+    is_error = isinstance(data, dict) and "error" in data
+    content.insert(0, TextContent(type="text", text=json.dumps(data, indent=2, ensure_ascii=False)))
+    return CallToolResult(content=content, isError=is_error)
 
 
 def _err(msg: str) -> CallToolResult:
@@ -415,7 +633,9 @@ async def call_tool(name: str, arguments: dict) -> CallToolResult:
         route = ROUTES.get(name)
         if route is None:
             return _err(f"Unknown tool: {name}")
-        return _ok(_post(route, _remap(name, arguments)))
+        # Run the blocking HTTP call off the event loop: long operations
+        # (open/save/clash run) must not freeze the stdio connection.
+        return _ok(await asyncio.to_thread(_post, route, _remap(name, arguments)))
     except Exception:
         return _err(traceback.format_exc())
 
@@ -444,8 +664,8 @@ def _selftest() -> None:
         print("\nAddin not reachable. Checklist:", file=sys.stderr)
         print(" 1. Is Navisworks open?", file=sys.stderr)
         print(" 2. Is the MCP Bridge plugin installed?", file=sys.stderr)
-        print("    Look for: %APPDATA%\\Autodesk\\Navisworks Manage 2027\\Plugins\\MCPBridge\\", file=sys.stderr)
-        print(" 3. In Navisworks: Add-Ins ribbon → click 'MCP Bridge' to verify.", file=sys.stderr)
+        print("    Look for: %ProgramData%\\Autodesk\\ApplicationPlugins\\MCPBridge.bundle\\", file=sys.stderr)
+        print(" 3. In Navisworks: 'AI companion' ribbon tab → click 'MCP Bridge' to start it.", file=sys.stderr)
         sys.exit(1)
     print("\nAddin reachable. Querying document info...\n", file=sys.stderr)
     print(json.dumps(_post("/document/info"), indent=2), file=sys.stderr)

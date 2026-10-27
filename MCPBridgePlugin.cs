@@ -1,5 +1,5 @@
 // =============================================================================
-//  Navisworks MCP Bridge — full implementation (36 routes)
+//  Navisworks MCP Bridge — full implementation (57 routes)
 // =============================================================================
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
@@ -11,6 +11,10 @@
 //  Routes
 //  ──────
 //  Health/Document  (4)  /health, /document/{info,statistics,tree}
+//  Model files      (9)  /model/{files,open,new,append,remove,update,save,
+//                                publish,convert}          ModelHandlers.cs
+//  View             (5)  /view/{capture,zoom,section-box,section-clear,
+//                               section-get}               ViewHandlers.cs
 //  Selection        (6)  /selection/{get,select-all,deselect-all,invert,
 //                                   from-set,by-name}
 //  Sets             (6)  /sets/{list,selection/create,search/create,delete,
@@ -18,14 +22,21 @@
 //  Find/Properties  (3)  /elements/{find,find-by-name,properties}
 //  Overrides        (6)  /elements/{color,transparency,hide,unhide-all,
 //                                   isolate,reset-overrides}
-//  Clash            (5)  /clash/{list,create,run,results,delete}
+//  Clash           (11)  /clash/{list,create,set-selections,run,results,
+//                                delete}, /clash/group/{create,list,delete,
+//                                add-clashes,set-status}   ClashGroupHandlers.cs
+//  Clash results    (7)  /clash/{summary,auto-group,report},
+//                        /clash/result/{status,assign,comment,zoom}
+//                                                          ClashResultHandlers.cs
 //  Viewpoints       (5)  /viewpoints/{list,save,goto,delete,current}
 //
 //  Lifecycle
 //  ─────────
-//  Listener auto-starts in the static constructor when Navisworks loads the
-//  DLL. The ribbon button is a manual restart / status dialog — useful as a
-//  fallback but not normally needed.
+//  The bridge starts on demand: Navisworks builds the "AI companion" ribbon
+//  tab from en-US\MCPBridge.xaml (icons: Images\) without creating the
+//  plugin, so nothing listens until someone clicks its "MCP Bridge" button.
+//  That first click runs the static constructor, which starts the listener;
+//  every click then shows the status (and restarts the listener if down).
 //
 //  Threading
 //  ─────────
@@ -58,14 +69,28 @@ using NavisApp = Autodesk.Navisworks.Api.Application;
 
 namespace NavisworksMcpAddin
 {
+    // A CommandHandlerPlugin with its own ribbon tab: an AddInPlugin would land
+    // on Navisworks' generic "Tool add-ins 1" tab, whose name can't be changed.
     [Plugin("MCPBridge", "ADSK",
             DisplayName = "MCP Bridge",
             ToolTip = "HTTP bridge for the Model Context Protocol server")]
-    public class MCPBridgePlugin : AddInPlugin
+    [RibbonLayout("MCPBridge.xaml")]
+    [RibbonTab(TabId, DisplayName = "AI companion")]
+    [Command(ButtonId,
+             DisplayName = "MCP Bridge",
+             ToolTip = "Status of the MCP bridge; restarts the listener if it is down",
+             Icon = "MCPBridge_16.png",
+             LargeIcon = "MCPBridge_32.png")]
+    public class MCPBridgePlugin : CommandHandlerPlugin
     {
+        // Ids shared with en-US\MCPBridge.xaml
+        private const string TabId = "ID_AICompanionTab";
+        private const string ButtonId = "ID_MCPBridgeButton";
+
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.1";
+        private const string Version = "2.2";
+        private const int Routes = 57;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -79,10 +104,9 @@ namespace NavisworksMcpAddin
         //  Plugin lifecycle
         // ─────────────────────────────────────────────────────────────────────
 
-        // Static ctor runs on the UI thread when Navisworks first touches the
-        // type during plugin discovery. We capture the SynchronizationContext
-        // and start the listener so the bridge is live before the user does
-        // anything.
+        // Static ctor runs on the UI thread when Navisworks first creates the
+        // plugin — on the first click of the ribbon button. We capture the
+        // SynchronizationContext and start the listener.
         static MCPBridgePlugin()
         {
             try
@@ -101,9 +125,19 @@ namespace NavisworksMcpAddin
             }
         }
 
+        public override CommandState CanExecuteCommand(string commandId)
+        {
+            return new CommandState(true);
+        }
+
+        public override bool CanExecuteRibbonTab(string ribbonTabId)
+        {
+            return true;
+        }
+
         // Manual restart / status check. Capture UI context here too, in case
         // the static ctor missed it.
-        public override int Execute(params string[] parameters)
+        public override int ExecuteCommand(string commandId, params string[] parameters)
         {
             try
             {
@@ -123,7 +157,7 @@ namespace NavisworksMcpAddin
                 MessageBox.Show(
                     $"Navisworks MCP Bridge {Version}\r\n\r\n" +
                     $"Status: {status}\r\n" +
-                    $"Routes: 36\r\n" +
+                    $"Routes: {Routes}\r\n" +
                     $"Log:    {LogPath}",
                     "Navisworks MCP Bridge",
                     MessageBoxButtons.OK,
@@ -131,7 +165,7 @@ namespace NavisworksMcpAddin
             }
             catch (Exception ex)
             {
-                Log("Execute() failed: " + ex);
+                Log("ExecuteCommand() failed: " + ex);
             }
             return 0;
         }
@@ -235,7 +269,7 @@ namespace NavisworksMcpAddin
                     ok = true,
                     version = Version,
                     port = Port,
-                    routes = 36
+                    routes = Routes
                 };
             }
 
@@ -248,6 +282,24 @@ namespace NavisworksMcpAddin
                     case "/document/info": return Handlers.DocumentInfo();
                     case "/document/statistics": return Handlers.DocumentStatistics();
                     case "/document/tree": return Handlers.DocumentTree(body);
+
+                    // Model files
+                    case "/model/files": return Handlers.ModelFiles();
+                    case "/model/open": return Handlers.ModelOpen(body);
+                    case "/model/new": return Handlers.ModelNew(body);
+                    case "/model/append": return Handlers.ModelAppend(body);
+                    case "/model/remove": return Handlers.ModelRemove(body);
+                    case "/model/update": return Handlers.ModelUpdate();
+                    case "/model/save": return Handlers.ModelSave(body);
+                    case "/model/publish": return Handlers.ModelPublish(body);
+                    case "/model/convert": return Handlers.ModelConvert(body);
+
+                    // View
+                    case "/view/capture": return Handlers.ViewCapture(body);
+                    case "/view/zoom": return Handlers.ViewZoom(body);
+                    case "/view/section-box": return Handlers.ViewSectionBox(body);
+                    case "/view/section-clear": return Handlers.ViewSectionClear();
+                    case "/view/section-get": return Handlers.ViewSectionGet();
 
                     // Selection
                     case "/selection/get": return Handlers.SelectionGet();
@@ -290,6 +342,13 @@ namespace NavisworksMcpAddin
                     case "/clash/group/delete": return Handlers.ClashGroupDelete(body);
                     case "/clash/group/add-clashes": return Handlers.ClashGroupAddClashes(body);
                     case "/clash/group/set-status": return Handlers.ClashGroupSetStatus(body);
+                    case "/clash/summary": return Handlers.ClashSummary(body);
+                    case "/clash/result/status": return Handlers.ClashResultStatusSet(body);
+                    case "/clash/result/assign": return Handlers.ClashResultAssign(body);
+                    case "/clash/result/comment": return Handlers.ClashResultComment(body);
+                    case "/clash/result/zoom": return Handlers.ClashResultZoom(body);
+                    case "/clash/auto-group": return Handlers.ClashAutoGroup(body);
+                    case "/clash/report": return Handlers.ClashReport(body);
 
                     // Viewpoints
                     case "/viewpoints/list": return Handlers.ViewpointsList();
@@ -1493,21 +1552,8 @@ namespace NavisworksMcpAddin
 
         private static void CollectClashResults(SavedItem item, List<object> output)
         {
-            if (item is ClashResult r)
-            {
-                output.Add(new
-                {
-                    name = r.DisplayName,
-                    status = r.Status.ToString(),
-                    distance = r.Distance,
-                    item1 = r.Item1?.DisplayName,
-                    item2 = r.Item2?.DisplayName
-                });
-            }
-            else if (item is GroupItem g)
-            {
-                foreach (SavedItem c in g.Children) CollectClashResults(c, output);
-            }
+            if (item is ClashResult r) output.Add(DescribeClashResult(r, null));
+            else if (item is GroupItem g) WalkResults(g, null, (cr, grp) => output.Add(DescribeClashResult(cr, grp)));
         }
 
         private static ClashTestType ParseClashType(string s)
