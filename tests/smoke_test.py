@@ -1,6 +1,6 @@
 """
-Smoke test for the MCP Bridge plugin routes added in 2.2
-=========================================================
+Smoke test for the MCP Bridge plugin routes added in 2.2 and 2.2.1
+===================================================================
 Talks to the plugin over HTTP (localhost:8765), like server_http.py does.
 
     python tests/smoke_test.py <work_dir> <a1.ifc> <a2.ifc> <b1.ifc> <b2.ifc>
@@ -76,8 +76,8 @@ def main():
 
     health = call("/health")
     print("plugin:", health)
-    if health.get("version") != "2.2":
-        sys.exit("plugin 2.2 is not running")
+    if health.get("version") != "2.2.1":
+        sys.exit("plugin 2.2.1 is not running")
 
     # ── Model files ───────────────────────────────────────────────────
     check("new_document", "/model/new", {"discard_changes": True})
@@ -148,6 +148,24 @@ def main():
     check("select file B1 by name", "/selection/by-name", {"pattern": names[2], "exact": True},
           lambda r: r["selected"] > 0 or "FAIL nothing selected")
     check("set_section_box around B1", "/view/section-box", {"padding": 0.5})
+    check("select_files B1 (no extension)", "/files/select",
+          {"names": [os.path.splitext(names[2])[0]]},
+          lambda r: (r["selected"] == 1 and r["matches"][0]["path"]) or f"FAIL {r}")
+    check("select_files add A1, one unknown", "/files/select",
+          {"names": [names[0], "does-not-exist.ifc"], "add_to_selection": True},
+          lambda r: (r["selected"] == 1 and r["notFound"] == ["does-not-exist.ifc"]) or f"FAIL {r}")
+    check("selection after add_to_selection", "/selection/get", None,
+          lambda r: r["count"] == 2 or f"FAIL count={r['count']}")
+    check("select_files unknown only -> error", "/files/select", {"names": ["does-not-exist.ifc"]},
+          expect_error=True)
+    check("color_files A1 + A2 red", "/files/color", {"names": [names[0], names[1]], "r": 255, "g": 0, "b": 0},
+          lambda r: r["colored"] == 2 or f"FAIL {r}")
+    check("color_files B1 green (contains)", "/files/color",
+          {"names": [os.path.splitext(names[2])[0][:-1]], "contains": True, "r": 0, "g": 200, "b": 0},
+          lambda r: r["colored"] >= 1 or f"FAIL {r}")
+    check("capture_view colored", "/view/capture", {"width": 1024}, lambda r: save_image(r, j("02a_colored.png")))
+    check("reset_overrides", "/elements/reset-overrides")
+    check("select file B1 again", "/files/select", {"names": [names[2]]})
     check("get_section", "/view/section-get", None, lambda r: (r.get("clipPlaneSet") or "")[:140])
     check("capture_view sectioned", "/view/capture", {"width": 1024}, lambda r: save_image(r, j("02_section.png")))
     check("clear_section", "/view/section-clear")

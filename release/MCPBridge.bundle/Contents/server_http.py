@@ -119,6 +119,26 @@ TOOLS = [
          inputSchema={"type": "object",
                       "properties": {"max_depth": {"type": "number", "default": 50}},
                       "required": []}),
+    Tool(name="select_files",
+         description="Select whole sub-models by file name (names from get_model_tree, with or "
+                     "without extension). Walks only the sub-model file tree, never the geometry, "
+                     "so it is fast on large federated models - use it instead of "
+                     "find_items_by_name for sub-models. contains=true matches substrings.",
+         inputSchema={"type": "object", "properties": {
+             "names":            {"type": "array", "items": {"type": "string"}},
+             "contains":         {"type": "boolean", "default": False},
+             "add_to_selection": {"type": "boolean", "default": False},
+         }, "required": ["names"]}),
+    Tool(name="color_files",
+         description="Override the color (RGB 0-255) of whole sub-models picked by file name, "
+                     "like select_files; does not change the selection.",
+         inputSchema={"type": "object", "properties": {
+             "names":    {"type": "array", "items": {"type": "string"}},
+             "contains": {"type": "boolean", "default": False},
+             "r": {"type": "integer", "minimum": 0, "maximum": 255},
+             "g": {"type": "integer", "minimum": 0, "maximum": 255},
+             "b": {"type": "integer", "minimum": 0, "maximum": 255},
+         }, "required": ["names", "r", "g", "b"]}),
 
     # ── Clash detection ────────────────────────────────────────────
     Tool(name="list_clash_tests",
@@ -245,7 +265,9 @@ Tool(name="set_clash_group_status",
              "select_results": {"type": "boolean", "default": False},
          }, "required": ["value"]}),
     Tool(name="find_items_by_name",
-         description="Quick search by element name (substring match).",
+         description="Quick search by element name (substring match). Walks every element of the "
+                     "model: slow on large federated models. To pick whole sub-models by "
+                     "file name use select_files / color_files instead.",
          inputSchema={"type": "object", "properties": {
              "pattern":        {"type": "string"},
              "limit":          {"type": "integer", "default": 50},
@@ -515,6 +537,8 @@ ROUTES: dict[str, str] = {
     "get_document_info":         "/document/info",
     "get_model_statistics":      "/document/statistics",
     "get_model_tree":            "/document/tree",
+    "select_files":              "/files/select",
+    "color_files":               "/files/color",
 
     "list_model_files":          "/model/files",
     "open_document":             "/model/open",

@@ -9,6 +9,9 @@
 [Bb]in/
 [Oo]bj/
 
+# Install packages made by Build-Package.ps1
+dist/
+
 # Visual Studio cache/options
 *.VC.db
 *.VC.VC.opendb

@@ -1,5 +1,5 @@
 // =============================================================================
-//  Navisworks MCP Bridge — full implementation (57 routes)
+//  Navisworks MCP Bridge — full implementation (59 routes)
 // =============================================================================
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
@@ -11,6 +11,7 @@
 //  Routes
 //  ──────
 //  Health/Document  (4)  /health, /document/{info,statistics,tree}
+//  File nodes       (2)  /files/{select,color}  sub-models by name
 //  Model files      (9)  /model/{files,open,new,append,remove,update,save,
 //                                publish,convert}          ModelHandlers.cs
 //  View             (5)  /view/{capture,zoom,section-box,section-clear,
@@ -89,8 +90,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.2";
-        private const int Routes = 57;
+        private const string Version = "2.2.1";
+        private const int Routes = 59;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -282,6 +283,10 @@ namespace NavisworksMcpAddin
                     case "/document/info": return Handlers.DocumentInfo();
                     case "/document/statistics": return Handlers.DocumentStatistics();
                     case "/document/tree": return Handlers.DocumentTree(body);
+
+                    // File nodes
+                    case "/files/select": return Handlers.FilesSelect(body);
+                    case "/files/color": return Handlers.FilesColor(body);
 
                     // Model files
                     case "/model/files": return Handlers.ModelFiles();
@@ -546,6 +551,99 @@ namespace NavisworksMcpAddin
 
             if (depth >= maxDepth) return;
             foreach (ModelItem child in fileChildren) CollectFileNodes(child, depth + 1, maxDepth, output);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  FILE NODES (sub-models picked by name, without touching geometry)
+        // ════════════════════════════════════════════════════════════════════
+
+        public static object FilesSelect(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            var match = MatchFileNodes(doc, body);
+
+            var selection = new ModelItemCollection();
+            if (GetBool(body, "add_to_selection", false)) selection.AddRange(doc.CurrentSelection.SelectedItems);
+            selection.AddRange(match.Items);
+            doc.CurrentSelection.CopyFrom(selection);
+
+            return new { selected = match.Items.Count, matches = match.Report, notFound = match.NotFound };
+        }
+
+        public static object FilesColor(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            var match = MatchFileNodes(doc, body);
+
+            int r = GetInt(body, "r", 255);
+            int g = GetInt(body, "g", 0);
+            int b = GetInt(body, "b", 0);
+            var color = new NwColor(Clamp01(r / 255.0), Clamp01(g / 255.0), Clamp01(b / 255.0));
+
+            // An override on a file node reaches all of its geometry.
+            doc.Models.OverridePermanentColor(match.Items, color);
+
+            return new { colored = match.Items.Count, r, g, b, matches = match.Report, notFound = match.NotFound };
+        }
+
+        private sealed class FileNodeMatch
+        {
+            public ModelItemCollection Items = new ModelItemCollection();
+            public List<object> Report = new List<object>();
+            public List<string> NotFound = new List<string>();
+        }
+
+        // File nodes whose name equals one of `names` (with or without the
+        // extension), or contains it when `contains` is true. Walks only the
+        // sub-model file tree, like DocumentTree. Fails when nothing matches.
+        private static FileNodeMatch MatchFileNodes(Document doc, Dictionary<string, object> body)
+        {
+            List<string> names = GetStringList(body, "names");
+            if (names.Count == 0) throw new ArgumentException("names is required (array of sub-model file names)");
+            bool contains = GetBool(body, "contains", false);
+
+            var nodes = new List<KeyValuePair<ModelItem, string>>();
+            foreach (Model m in doc.Models)
+            {
+                if (m.RootItem != null) CollectFileNodePaths(m.RootItem, "", nodes);
+            }
+
+            var result = new FileNodeMatch();
+            foreach (string name in names)
+            {
+                int hits = 0;
+                foreach (var node in nodes)
+                {
+                    string n = node.Key.DisplayName ?? "";
+                    bool ok = contains
+                        ? n.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0
+                        : string.Equals(n, name, StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(Path.GetFileNameWithoutExtension(n), name, StringComparison.OrdinalIgnoreCase);
+                    if (!ok) continue;
+                    hits++;
+                    if (!result.Items.Contains(node.Key)) result.Items.Add(node.Key);
+                    result.Report.Add(new { name, path = node.Value });
+                }
+                if (hits == 0) result.NotFound.Add(name);
+            }
+
+            if (result.Items.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "no sub-model file matches: " + string.Join("; ", names) + " (see get_model_tree)");
+            }
+            return result;
+        }
+
+        private static void CollectFileNodePaths(ModelItem item, string parentPath,
+                                                 List<KeyValuePair<ModelItem, string>> output)
+        {
+            string path = parentPath.Length == 0 ? (item.DisplayName ?? "") : parentPath + " / " + item.DisplayName;
+            output.Add(new KeyValuePair<ModelItem, string>(item, path));
+            foreach (ModelItem child in item.Children)
+            {
+                if (IsFileNode(child)) CollectFileNodePaths(child, path, output);
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════

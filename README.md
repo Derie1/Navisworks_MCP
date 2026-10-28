@@ -5,9 +5,10 @@
 > Autodesk bundle via `INSTALL.BAT`, the `get_model_tree` tool, and in 2.2 the
 > model-file, view and clash-result tools (open / append / remove / save .nwf and
 > .nwd in a chosen version, view capture, section box, clash status / assignee /
-> comments, auto-grouping, reports).
+> comments, auto-grouping, reports). 2.2.1 adds `select_files` / `color_files`:
+> whole sub-models by file name, without walking the geometry.
 
-> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides — 61 tools through the Model Context Protocol.
+> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides — 63 tools through the Model Context Protocol.
 
 <p align="center">
   <img src="docs/architecture.svg" alt="Architecture diagram" width="100%">
@@ -86,9 +87,9 @@ Or test from PowerShell with no MCP client involved:
 ```powershell
 Invoke-RestMethod http://localhost:8765/health
 # ok      : True
-# version : 2.2
+# version : 2.2.1
 # port    : 8765
-# routes  : 57
+# routes  : 59
 ```
 
 ### 4. Wire into Claude Desktop
@@ -122,6 +123,14 @@ dotnet build NavisworksMcpAddin.csproj -c Release -p:NavisworksVersion=2027   # 
 Pass `-p:NavisworksInstallDir="..."` too if Navisworks is not in `C:\Program Files\Autodesk\Navisworks Manage <Year>`. Where the APIs differ, the 2027 build defines `NAVIS_2027_OR_LATER` (e.g. a clash comment's author is an `Assignee` in 2027, a string in 2026).
 
 Each build folder holds `MCPBridge.dll` plus the ribbon files: `en-US\MCPBridge.xaml` (also copied as `de-DE\`) and `Images\MCPBridge_16/32.png`. To ship a build, copy the whole `bin\Release\<Year>\` folder to `release\MCPBridge.bundle\Contents\<Year>\`, copy `server_http.py` into `release\MCPBridge.bundle\Contents\`, bump the version in `PackageContents.xml`, and run `INSTALL.BAT`.
+
+### Install package for another PC
+
+```powershell
+.\Build-Package.ps1
+```
+
+Builds both releases and writes `dist\NavisworksMCP-<version>\` plus `dist\NavisworksMCP-<version>.7z` (`dist\` is git-ignored; the version is read from `release\MCPBridge.bundle\PackageContents.xml`). The archive holds `INSTALL.BAT`, `README.md` and `MCPBridge.bundle\`. On the other PC: unpack it, close Navisworks and run `INSTALL.BAT`. Needs 7-Zip (`-SevenZip <path>` if it is not in the default place).
 
 ### Smoke test
 
@@ -163,6 +172,8 @@ Argument names below are the **MCP tool argument names** (what the LLM sees). Th
 | `get_document_info` | Title, filename, units, model count, per-model file paths. |
 | `get_model_statistics` | Element counts grouped by class display name. |
 | `get_model_tree` | Tree of sub-model files (.nwd/.nwc/.ifc/...) in the open document, flat in pre-order with a depth per node. Does not descend into geometry. |
+| `select_files` | Select whole sub-models by file name (`names[]`, as in `get_model_tree`, extension optional; `contains=true` for substrings, `add_to_selection` to extend). Walks only the file tree, so it is fast on large federated models. Returns the tree path of every match and the names not found. |
+| `color_files` | Color whole sub-models by file name (`names[]` + `r`,`g`,`b`), same matching as `select_files`; leaves the selection alone. |
 
 ### Model files
 
@@ -241,7 +252,7 @@ Zoom and section box warn when the items span kilometres — usually files in di
 | Tool | Required args | Purpose |
 |---|---|---|
 | `find_items` | `value` | Single-condition property search. |
-| `find_items_by_name` | `pattern` | Substring match on element display names. |
+| `find_items_by_name` | `pattern` | Substring match on element display names. Walks every element — slow on large federated models; for whole sub-models use `select_files` / `color_files`. |
 | `select_all` / `deselect_all` / `invert_selection` | — | Bulk selection ops. |
 | `select_from_set` | `name` | Replace current selection with a named set's contents. |
 | `get_current_selection` | — | First N selected items + total count. |
