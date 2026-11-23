@@ -1,0 +1,6 @@
+<Project>
+  <!-- Intermediate files outside the source folder; must be set before Microsoft.Common.props. -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\obj\Server\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

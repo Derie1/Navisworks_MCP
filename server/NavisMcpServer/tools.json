@@ -1,0 +1,1435 @@
+{
+  "instructions": "Tools that control a running Autodesk Navisworks Manage/Simulate 2026-2027 through the MCP Bridge plugin. The bridge does not start on its own: if a tool says it is not reachable, ask the user to click 'MCP Bridge' on the 'AI companion' ribbon tab in Navisworks. A modal dialog in Navisworks (missing files, errors) blocks every call until someone closes it. Opening, refreshing and saving models and running clash tests can take many minutes on large federated models.",
+  "tools": [
+    {
+      "name": "health_check",
+      "description": "Verify the Navisworks addin is running and reachable on localhost:8765.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_document_info",
+      "description": "Return metadata for the currently open Navisworks document.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_model_statistics",
+      "description": "Element counts grouped by class.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_model_tree",
+      "description": "Tree of sub-model files (.nwd/.nwc/.ifc/...) in the open document, flat in pre-order with a depth per node. Does not descend into geometry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "max_depth": {
+            "type": "number",
+            "default": 50
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "select_files",
+      "description": "Select whole sub-models by file name (names from get_model_tree, with or without extension). Walks only the sub-model file tree, never the geometry, so it is fast on large federated models - use it instead of find_items_by_name for sub-models. contains=true matches substrings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contains": {
+            "type": "boolean",
+            "default": false
+          },
+          "add_to_selection": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "names"
+        ]
+      }
+    },
+    {
+      "name": "color_files",
+      "description": "Override the color (RGB 0-255) of whole sub-models picked by file name, like select_files; does not change the selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contains": {
+            "type": "boolean",
+            "default": false
+          },
+          "r": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "g": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "b": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "required": [
+          "names",
+          "r",
+          "g",
+          "b"
+        ]
+      }
+    },
+    {
+      "name": "list_clash_tests",
+      "description": "List all clash tests in the current document with their status and result counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "create_clash_test",
+      "description": "Create a Clash Detective test. selectionA / selectionB optionally name selection-sets or search-sets to populate the test with on creation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "clash_type": {
+            "type": "string",
+            "enum": [
+              "Hard",
+              "Clearance",
+              "Duplicate"
+            ],
+            "default": "Hard"
+          },
+          "tolerance": {
+            "type": "number",
+            "default": 0.001
+          },
+          "selectionA": {
+            "type": "string",
+            "description": "Name of a selection-set or search-set for side A."
+          },
+          "selectionB": {
+            "type": "string",
+            "description": "Name of a selection-set or search-set for side B."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "set_clash_selections",
+      "description": "Attach selection-sets / search-sets to side A and/or side B of an existing clash test.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "selectionA": {
+            "type": "string"
+          },
+          "selectionB": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name"
+        ]
+      }
+    },
+    {
+      "name": "run_clash_test",
+      "description": "Run a clash test by name, or all tests if name omitted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_clash_results",
+      "description": "Return clash results for a named test.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "test_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_clash_test",
+      "description": "Delete a clash test by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name"
+        ]
+      }
+    },
+    {
+      "name": "create_clash_group",
+      "description": "Create an (empty) clash group inside an existing clash test.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name",
+          "group_name"
+        ]
+      }
+    },
+    {
+      "name": "list_clash_groups",
+      "description": "List clash groups inside a clash test, with the names of their child clash results.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_clash_group",
+      "description": "Delete a clash group (and its child results) from a clash test.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name",
+          "group_name"
+        ]
+      }
+    },
+    {
+      "name": "add_clashes_to_group",
+      "description": "Move existing (ungrouped) clash results from a clash test into one of its clash groups. Already-grouped clashes are left alone; pass them by their display name (e.g. 'Clash1').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "clash_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Display names of clashes to move into the group."
+          }
+        },
+        "required": [
+          "test_name",
+          "group_name",
+          "clash_names"
+        ]
+      }
+    },
+    {
+      "name": "set_clash_group_status",
+      "description": "Set the review status of a clash group (New | Active | Reviewed | Approved | Resolved).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "New",
+              "Active",
+              "Reviewed",
+              "Approved",
+              "Resolved"
+            ]
+          }
+        },
+        "required": [
+          "test_name",
+          "group_name",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "list_sets",
+      "description": "List all selection sets and search sets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "create_selection_set",
+      "description": "Create a selection set from the current viewport selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_selection_set_items",
+      "description": "List the elements stored in a named selection set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_search_set",
+      "description": "Create a saved search with a single property condition. Operators: equals, contains, startsWith, endsWith.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "default": "Item"
+          },
+          "property": {
+            "type": "string",
+            "default": "Name"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "equals",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ],
+            "default": "contains"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "execute_search_set",
+      "description": "Run a saved search and return the count of matching elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_set",
+      "description": "Delete a selection set or search set by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "find_items",
+      "description": "Single-condition property search returning matching elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "default": "Item"
+          },
+          "property": {
+            "type": "string",
+            "default": "Name"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "equals",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ],
+            "default": "contains"
+          },
+          "value": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "select_results": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "find_items_by_name",
+      "description": "Quick search by element name (substring match). Walks every element of the model: slow on large federated models. To pick whole sub-models by file name use select_files / color_files instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "select_results": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "select_all",
+      "description": "Select every element in the model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "deselect_all",
+      "description": "Clear the current selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "invert_selection",
+      "description": "Invert the current selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "select_from_set",
+      "description": "Replace the current selection with the contents of a named set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_current_selection",
+      "description": "Return the elements currently selected in the viewport.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_element_properties",
+      "description": "Return all property tabs and values for the first selected element (or by name).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "color_elements",
+      "description": "Override the color (RGB 0-255) of currently selected elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "r": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "g": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "b": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "required": [
+          "r",
+          "g",
+          "b"
+        ]
+      }
+    },
+    {
+      "name": "set_transparency",
+      "description": "Override transparency (0.0 opaque .. 1.0 fully transparent) of selected elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "transparency": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "reset_overrides",
+      "description": "Remove every color and transparency override and unhide everything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "hide_elements",
+      "description": "Hide the currently selected elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "unhide_all",
+      "description": "Restore visibility of every hidden element.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "isolate_elements",
+      "description": "Hide everything except the current selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "list_viewpoints",
+      "description": "List all saved viewpoints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "save_viewpoint",
+      "description": "Save the current camera position as a named viewpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "goto_viewpoint",
+      "description": "Navigate to a saved viewpoint by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_viewpoint",
+      "description": "Delete a saved viewpoint by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_current_viewpoint",
+      "description": "Return the current camera position and projection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "list_model_files",
+      "description": "List the files loaded in the current document with their index, whether the file and its source (e.g. the IFC) exist on disk, and modification times. An appended .nwf expands into its files; an appended .nwd is one entry whose 'contains' lists the files it was built from. Use the index with remove_file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "open_document",
+      "description": "Open an .nwf/.nwd/.nwc or any supported source file, replacing the current document. Refuses if the current document has unsaved changes unless discard_changes is true. Navisworks may show a dialog (e.g. missing files) that someone has to close.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Full path of the file to open."
+          },
+          "discard_changes": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "new_document",
+      "description": "Clear the current document (File > New).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "discard_changes": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "append_files",
+      "description": "Append one or more files (IFC, NWC, NWD, NWF, RVT, DWG, ...) to the current document.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Full file paths."
+          }
+        },
+        "required": [
+          "paths"
+        ]
+      }
+    },
+    {
+      "name": "remove_file",
+      "description": "Remove a loaded file from the current document, by index or by name (as shown by list_model_files). Prefer index when names repeat.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "description": "Model name or file name, e.g. 'ARC.ifc'."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "update_files",
+      "description": "Reload every loaded file that changed on disk since it was loaded (the 'Refresh' command). Returns the file list afterwards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "save_document",
+      "description": "Save the current document as .nwf (references the source files) or .nwd (everything embedded). Without path, saves over the current file. version picks the file format: 'current' (default) or a year from 2015 on, e.g. '2026' so Navisworks 2026 can open a file saved in 2027. 2016-2025 share one format. Saving .nwd keeps the open document as it is (keep_open, default); keep_open=false makes the .nwd the open document, its files collapsing into one model - needed before publish_nwd.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Target .nwf or .nwd path."
+          },
+          "version": {
+            "type": "string",
+            "default": "current"
+          },
+          "keep_open": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "publish_nwd",
+      "description": "Publish the open .nwd to a new .nwd with export options: format version, embedded external references, without hidden items, or without object properties (for handing a model to third parties). Works only while an .nwd is the open document (Navisworks restriction).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "default": "current"
+          },
+          "embed_xrefs": {
+            "type": "boolean",
+            "default": false
+          },
+          "exclude_hidden": {
+            "type": "boolean",
+            "default": false
+          },
+          "strip_properties": {
+            "type": "boolean",
+            "default": false
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "comments": {
+            "type": "string"
+          },
+          "allow_resave": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "convert_to_nwd",
+      "description": "Convert files to .nwd one by one: open each file and save it as <name>.nwd next to it or in output_dir. Replaces the current document while running and reopens it at the end (restore_document).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "output_dir": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "default": "current"
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false
+          },
+          "restore_document": {
+            "type": "boolean",
+            "default": true
+          },
+          "discard_changes": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "paths"
+        ]
+      }
+    },
+    {
+      "name": "capture_view",
+      "description": "Render the current Navisworks view and return it as an image, so you can see the model. Optionally also save the PNG to save_path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer",
+            "default": 1280
+          },
+          "height": {
+            "type": "integer",
+            "description": "Default keeps the view's aspect ratio."
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "overlay",
+              "scene",
+              "raytrace"
+            ],
+            "default": "overlay"
+          },
+          "save_path": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "zoom_to_elements",
+      "description": "Zoom the camera to the current selection, or to a selection/search set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "set_name": {
+            "type": "string"
+          },
+          "padding": {
+            "type": "number",
+            "default": 0,
+            "description": "Extra margin in model units."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_section_box",
+      "description": "Turn on a section box around the current selection or a set, and zoom to it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "set_name": {
+            "type": "string"
+          },
+          "padding": {
+            "type": "number",
+            "default": 0,
+            "description": "Extra margin in model units."
+          },
+          "zoom": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "clear_section",
+      "description": "Switch sectioning off in the current view.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_section",
+      "description": "Return the current view's sectioning as Navisworks ClipPlaneSet JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_clash_summary",
+      "description": "Per clash test: last run, total results, counts by status, number of groups.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string",
+            "description": "Omit for all tests."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_clash_result_status",
+      "description": "Set the status of individual clash results (also inside groups).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "clash_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "New",
+              "Active",
+              "Reviewed",
+              "Approved",
+              "Resolved"
+            ]
+          }
+        },
+        "required": [
+          "test_name",
+          "clash_names",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "assign_clashes",
+      "description": "Assign clash results to a person or company. Empty assignee unassigns.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "clash_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignee": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_name",
+          "clash_names",
+          "assignee"
+        ]
+      }
+    },
+    {
+      "name": "add_clash_comment",
+      "description": "Add a comment to clash results.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "clash_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "comment": {
+            "type": "string"
+          },
+          "comment_status": {
+            "type": "string",
+            "enum": [
+              "New",
+              "Active",
+              "Approved",
+              "Resolved"
+            ],
+            "default": "New"
+          },
+          "author": {
+            "type": "string",
+            "description": "Defaults to the Windows user."
+          }
+        },
+        "required": [
+          "test_name",
+          "clash_names",
+          "comment"
+        ]
+      }
+    },
+    {
+      "name": "zoom_to_clash",
+      "description": "Show one clash like Clash Detective does: select both items, colour item 1 red and item 2 green, zoom to it. section=true adds a section box; capture=true also returns an image of the view.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "clash_name": {
+            "type": "string"
+          },
+          "highlight": {
+            "type": "boolean",
+            "default": true
+          },
+          "section": {
+            "type": "boolean",
+            "default": false
+          },
+          "padding": {
+            "type": "number",
+            "description": "Margin in model units; default = size of the clash box."
+          },
+          "capture": {
+            "type": "boolean",
+            "default": false
+          },
+          "width": {
+            "type": "integer",
+            "default": 1280
+          }
+        },
+        "required": [
+          "test_name",
+          "clash_name"
+        ]
+      }
+    },
+    {
+      "name": "auto_group_clashes",
+      "description": "Group all ungrouped results of a top-level clash test in one go. group_by: 'model' (file of item A/B, default both: 'A.ifc × B.ifc'), 'level' (nearest storey/level node, else Element/Level property), or 'property' (category + property display names, read from the item or its ancestors). side: a, b or both.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "model",
+              "level",
+              "property"
+            ],
+            "default": "model"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b",
+              "both"
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "property": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Text put before every group name."
+          }
+        },
+        "required": [
+          "test_name"
+        ]
+      }
+    },
+    {
+      "name": "export_clash_report",
+      "description": "Write a clash report as .csv (opens in Excel) or .html: test, group, clash, status, distance, assignee, items and their model files, centre point, comments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Target .csv or .html path."
+          },
+          "test_name": {
+            "type": "string",
+            "description": "Omit for all tests."
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these statuses, e.g. ['New', 'Active']."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  ],
+  "bridge": {
+    "health_check": {
+      "route": "/health"
+    },
+    "get_document_info": {
+      "route": "/document/info"
+    },
+    "get_model_statistics": {
+      "route": "/document/statistics"
+    },
+    "get_model_tree": {
+      "route": "/document/tree"
+    },
+    "select_files": {
+      "route": "/files/select"
+    },
+    "color_files": {
+      "route": "/files/color"
+    },
+    "list_clash_tests": {
+      "route": "/clash/list"
+    },
+    "create_clash_test": {
+      "route": "/clash/create",
+      "rename": {
+        "clash_type": "type"
+      }
+    },
+    "set_clash_selections": {
+      "route": "/clash/set-selections",
+      "rename": {
+        "test_name": "name"
+      }
+    },
+    "run_clash_test": {
+      "route": "/clash/run",
+      "rename": {
+        "test_name": "name"
+      },
+      "long": true
+    },
+    "get_clash_results": {
+      "route": "/clash/results",
+      "rename": {
+        "test_name": "name",
+        "max_results": "limit"
+      }
+    },
+    "delete_clash_test": {
+      "route": "/clash/delete",
+      "rename": {
+        "test_name": "name"
+      }
+    },
+    "create_clash_group": {
+      "route": "/clash/group/create"
+    },
+    "list_clash_groups": {
+      "route": "/clash/group/list"
+    },
+    "delete_clash_group": {
+      "route": "/clash/group/delete"
+    },
+    "add_clashes_to_group": {
+      "route": "/clash/group/add-clashes"
+    },
+    "set_clash_group_status": {
+      "route": "/clash/group/set-status"
+    },
+    "list_sets": {
+      "route": "/sets/list"
+    },
+    "create_selection_set": {
+      "route": "/sets/selection/create"
+    },
+    "get_selection_set_items": {
+      "route": "/sets/items"
+    },
+    "create_search_set": {
+      "route": "/sets/search/create"
+    },
+    "execute_search_set": {
+      "route": "/sets/search/run"
+    },
+    "delete_set": {
+      "route": "/sets/delete"
+    },
+    "find_items": {
+      "route": "/elements/find",
+      "rename": {
+        "select_results": "select"
+      }
+    },
+    "find_items_by_name": {
+      "route": "/elements/find-by-name",
+      "rename": {
+        "select_results": "select"
+      }
+    },
+    "select_all": {
+      "route": "/selection/select-all"
+    },
+    "deselect_all": {
+      "route": "/selection/deselect-all"
+    },
+    "invert_selection": {
+      "route": "/selection/invert"
+    },
+    "select_from_set": {
+      "route": "/selection/from-set"
+    },
+    "get_current_selection": {
+      "route": "/selection/get"
+    },
+    "get_element_properties": {
+      "route": "/elements/properties"
+    },
+    "color_elements": {
+      "route": "/elements/color"
+    },
+    "set_transparency": {
+      "route": "/elements/transparency"
+    },
+    "reset_overrides": {
+      "route": "/elements/reset-overrides"
+    },
+    "hide_elements": {
+      "route": "/elements/hide"
+    },
+    "unhide_all": {
+      "route": "/elements/unhide-all"
+    },
+    "isolate_elements": {
+      "route": "/elements/isolate"
+    },
+    "list_viewpoints": {
+      "route": "/viewpoints/list"
+    },
+    "save_viewpoint": {
+      "route": "/viewpoints/save"
+    },
+    "goto_viewpoint": {
+      "route": "/viewpoints/goto"
+    },
+    "delete_viewpoint": {
+      "route": "/viewpoints/delete"
+    },
+    "get_current_viewpoint": {
+      "route": "/viewpoints/current"
+    },
+    "list_model_files": {
+      "route": "/model/files"
+    },
+    "open_document": {
+      "route": "/model/open",
+      "long": true
+    },
+    "new_document": {
+      "route": "/model/new"
+    },
+    "append_files": {
+      "route": "/model/append",
+      "long": true
+    },
+    "remove_file": {
+      "route": "/model/remove"
+    },
+    "update_files": {
+      "route": "/model/update",
+      "long": true
+    },
+    "save_document": {
+      "route": "/model/save",
+      "long": true
+    },
+    "publish_nwd": {
+      "route": "/model/publish",
+      "long": true
+    },
+    "convert_to_nwd": {
+      "route": "/model/convert",
+      "long": true
+    },
+    "capture_view": {
+      "route": "/view/capture"
+    },
+    "zoom_to_elements": {
+      "route": "/view/zoom"
+    },
+    "set_section_box": {
+      "route": "/view/section-box"
+    },
+    "clear_section": {
+      "route": "/view/section-clear"
+    },
+    "get_section": {
+      "route": "/view/section-get"
+    },
+    "get_clash_summary": {
+      "route": "/clash/summary"
+    },
+    "set_clash_result_status": {
+      "route": "/clash/result/status"
+    },
+    "assign_clashes": {
+      "route": "/clash/result/assign"
+    },
+    "add_clash_comment": {
+      "route": "/clash/result/comment"
+    },
+    "zoom_to_clash": {
+      "route": "/clash/result/zoom"
+    },
+    "auto_group_clashes": {
+      "route": "/clash/auto-group",
+      "long": true
+    },
+    "export_clash_report": {
+      "route": "/clash/report",
+      "long": true
+    }
+  }
+}

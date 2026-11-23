@@ -5,8 +5,8 @@
     Navisworks MCP Bridge — full build
 
     Builds a single in-process plugin (MCPBridge.dll) that hosts a tiny
-    HTTP listener on port 8765 inside Navisworks. The Python MCP server
-    (../server_http.py) talks to it over plain HTTP/JSON.
+    HTTP listener on port 8765 inside Navisworks. The MCP server
+    (server\NavisMcpServer, built separately) talks to it over plain HTTP/JSON.
 
     Dependencies and why:
       System.Text.Json     JSON parsing and serialization for the HTTP API.
@@ -62,6 +62,14 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- The MCP server (net8.0) is a separate project under server\; keep its sources out of
+       this net48 plugin build. -->
+  <ItemGroup>
+    <Compile Remove="server\**" />
+    <None Remove="server\**" />
+    <EmbeddedResource Remove="server\**" />
   </ItemGroup>
 
   <!-- Ribbon: layout + button icons next to the DLL. Navisworks looks for the

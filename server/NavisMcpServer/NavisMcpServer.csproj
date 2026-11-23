@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Navisworks MCP server: a small stdio MCP server started by the AI client (Claude Desktop,
+    Claude Code, Codex). It forwards tool calls to the MCP Bridge plugin inside Navisworks over
+    http://localhost:8765/. Replaces server_http.py (Python) of versions up to 2.2.x.
+
+    A framework-dependent DLL started as "dotnet.exe navis_mcp_server.dll": Navisworks 2026/2027
+    install the .NET runtime themselves (their Revit file loaders need .NET 8 / 10); net8.0 rolls
+    forward to any newer major. No NuGet packages. No .exe on purpose: application control on
+    managed PCs often blocks unsigned executables in user folders, while dotnet.exe is signed.
+
+      dotnet publish -c Release -p:Version=<ver>    (Build-Package.ps1 does this)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <AssemblyName>navis_mcp_server</AssemblyName>
+    <RootNamespace>NavisMcpServer</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseAppHost>false</UseAppHost>
+    <SelfContained>false</SelfContained>
+    <DebugType>embedded</DebugType>
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
+    <PublishDir>..\..\bin\Release\Server\</PublishDir>
+    <OutputPath>..\..\bin\$(Configuration)\ServerBuild\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Tool names, descriptions, input schemas and their plugin routes: the single source. -->
+    <EmbeddedResource Include="tools.json" LogicalName="tools.json" />
+  </ItemGroup>
+</Project>

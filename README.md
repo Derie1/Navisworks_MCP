@@ -2,11 +2,13 @@
 
 > **Fork of [Aitology/Navisworks_MCP](https://github.com/Aitology/Navisworks_MCP)** by Muhammad Osama.
 > Changes in this fork: builds for Navisworks 2026 and 2027, installation as an
-> Autodesk bundle via `INSTALL.BAT`, the `get_model_tree` tool, and in 2.2 the
-> model-file, view and clash-result tools (open / append / remove / save .nwf and
-> .nwd in a chosen version, view capture, section box, clash status / assignee /
-> comments, auto-grouping, reports). 2.2.1 adds `select_files` / `color_files`:
-> whole sub-models by file name, without walking the geometry.
+> Autodesk bundle, the `get_model_tree` tool, and in 2.2 the model-file, view and
+> clash-result tools (open / append / remove / save .nwf and .nwd in a chosen
+> version, view capture, section box, clash status / assignee / comments,
+> auto-grouping, reports). 2.2.1 adds `select_files` / `color_files`: whole
+> sub-models by file name, without walking the geometry. 2.3.0 replaces the Python
+> MCP server with a .NET one and adds an installer (EN/RU) that connects it to
+> Claude Desktop, Claude Code and Codex.
 
 > Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides — 63 tools through the Model Context Protocol.
 
@@ -16,14 +18,14 @@
 
 ## What this is
 
-A two-piece bridge that lets any MCP-compatible client (Claude Desktop, Claude Code, Cline, Continue, etc.) drive a running instance of Navisworks Manage or Simulate.
+A two-piece bridge that lets any MCP-compatible client (Claude Desktop, Claude Code, Codex, etc.) drive a running instance of Navisworks Manage or Simulate.
 
 | Piece | Lives in | Talks |
 |---|---|---|
-| **`MCPBridge.dll`** | Inside Navisworks as a .NET addin | Hosts an HTTP server on `localhost:8765` |
-| **`server_http.py`** | Standalone Python process spawned by the MCP client | Translates MCP `tools/call` → JSON HTTP `POST` |
+| **`MCPBridge.dll`** | Inside Navisworks as a .NET Framework addin | Hosts an HTTP server on `localhost:8765` |
+| **`navis_mcp_server.dll`** | Separate .NET 8 process the MCP client starts as `dotnet.exe navis_mcp_server.dll` | Translates MCP `tools/call` over stdio → JSON HTTP `POST` |
 
-The Python side has zero coupling to Navisworks — it just speaks HTTP. The C# side has zero coupling to MCP — it just exposes a tiny REST surface. Either can be replaced independently.
+The server has zero coupling to the Navisworks API — it just speaks HTTP. The addin has zero coupling to MCP — it just exposes a tiny REST surface. Either can be replaced independently.
 
 ## Why a two-piece design (instead of COM)
 
@@ -34,52 +36,45 @@ The earlier COM-based server had four hard problems:
 3. **COM registration** broken by Windows updates and Navisworks repair installs.
 4. **Limited API surface** — COM exposes ~20% of what NwApi can do (no clash, no search sets, no overrides).
 
-Running an addin **inside** Navisworks sidesteps every one of these. Full NwApi access. No registration. No version detection. No `pywin32`.
+Running an addin **inside** Navisworks sidesteps every one of these. Full NwApi access. No registration. No version detection.
 
 ## Prerequisites
-
-Install these once on the machine that runs Navisworks:
 
 | Software | Purpose | Where to get it |
 |---|---|---|
 | **Windows 10/11 (64-bit)** | OS | — |
 | **Navisworks Manage** or **Simulate** 2026 / 2027 | The host application. Freedom is **not** supported (no .NET API). | autodesk.com |
-| **Python 3.10+** | To run `server_http.py` | [python.org/downloads](https://www.python.org/downloads/) |
-| **MCP Python SDK** | The Python server depends on it | `pip install mcp` |
-| **An MCP client** | Claude Desktop, Claude Code, Cline, Continue, etc. | claude.ai/download (or any) |
-| **.NET SDK 8+** | Only to build `MCPBridge.dll` from source (it targets .NET Framework 4.8) | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download) |
+| **.NET 8 runtime or newer** | Runs the MCP server. Navisworks 2026 / 2027 install it themselves (their Revit file loaders need it); the installer checks. | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download) |
+| **An MCP client** | Claude Desktop, Claude Code, Codex, or any other | claude.ai/download (or any) |
+| **.NET SDK 8+** | Only to build from source | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download) |
+
+No Python is needed any more (versions up to 2.2.x used a Python server).
 
 ## Install
 
-### 1. Install the plugin
+### 1. Run the installer
 
-Close Navisworks and double-click **`INSTALL.BAT`**. It copies
-`release\MCPBridge.bundle\` to `%ProgramData%\Autodesk\ApplicationPlugins\MCPBridge.bundle\`.
-Navisworks Manage/Simulate 2026 and 2027 load the bundle on startup and pick
-the DLL built for their API (`Contents\2026\` = Nw23, `Contents\2027\` = Nw24,
-see `PackageContents.xml`).
+Get the package `NavisworksMCP-<version>` (made by `Build-Package.ps1`, see below), unpack it, close Navisworks and run **`INSTALL.BAT`**. It asks for the language (English / Русский), then **I** to install or update, **U** to uninstall.
 
 ```bat
-INSTALL.BAT              :: install / update
-INSTALL.BAT /uninstall   :: remove the plugin
+INSTALL.BAT          :: interactive
+INSTALL.BAT I EN     :: install / update without questions (RU for Russian messages)
+INSTALL.BAT U EN     :: uninstall without questions
 ```
 
-Notes:
+What it does:
 
-- Navisworks does **not** scan `%APPDATA%\Autodesk\Navisworks <Product> <Year>\Plugins\`. Plugins load from `<install dir>\Plugins\<Name>\<Name>.dll` or from bundles in `ApplicationPlugins` — this project uses the bundle.
-- The installer removes old loose-folder installs (`Plugins\MCPBridge`, `Plugins\NavisworksMcpAddin` in Program Files or `%APPDATA%`). Next to the bundle they would load the same plugin twice and fight over port 8765. Removing one from Program Files may need *Run as administrator*.
-- It refuses to run while Navisworks is open (the DLL is locked) and strips the downloaded-file mark so .NET can load the DLL.
+- Copies `MCPBridge.bundle\` to `%ProgramData%\Autodesk\ApplicationPlugins\MCPBridge.bundle\`. Navisworks Manage/Simulate 2026 and 2027 load the bundle on startup and pick the DLL built for their API (`Contents\2026\` = Nw23, `Contents\2027\` = Nw24, see `PackageContents.xml`). The MCP server is `Contents\Server\navis_mcp_server.dll`.
+- Removes what earlier versions left behind: the Python server `Contents\server_http.py`, and loose-folder installs (`Plugins\MCPBridge`, `Plugins\NavisworksMcpAddin` in Program Files or `%APPDATA%`) that would load the plugin twice and fight over port 8765. Removing one from Program Files may need *Run as administrator*.
+- Connects the server to the AI clients it finds — Claude Desktop, Claude Code, Codex — asking for each. A client that already has a `navisworks` server (e.g. the Python one) is switched over without asking. Other entries in their configs stay untouched; a copy `<config>.bak-navisworks` is kept before the first change.
+- Refuses to run while Navisworks is open (the DLL is locked) and strips the downloaded-file mark so .NET can load the DLLs.
 
-### 2. Install the Python MCP SDK
+Navisworks does **not** scan `%APPDATA%\Autodesk\Navisworks <Product> <Year>\Plugins\`. Plugins load from `<install dir>\Plugins\<Name>\<Name>.dll` or from bundles in `ApplicationPlugins` — this project uses the bundle.
 
-```powershell
-pip install mcp
-```
+### 2. Start the bridge
 
-### 3. Verify the addin loads
-
-1. Start Navisworks.
-2. Switch to the **AI companion** ribbon tab and click **MCP Bridge**. The bridge does **not** start on its own — this click starts it.
+1. Restart the AI client so it starts the new MCP server.
+2. Start Navisworks, switch to the **AI companion** ribbon tab and click **MCP Bridge**. The bridge does **not** start on its own — this click starts it, after every Navisworks start.
 3. A dialog confirms `Status: listening on http://localhost:8765/`. Clicking again shows the status and restarts the listener if it was down.
 
 Or test from PowerShell with no MCP client involved:
@@ -87,60 +82,56 @@ Or test from PowerShell with no MCP client involved:
 ```powershell
 Invoke-RestMethod http://localhost:8765/health
 # ok      : True
-# version : 2.2.1
+# product : Navisworks
+# version : 2.3.0
 # port    : 8765
 # routes  : 59
 ```
 
-### 4. Wire into Claude Desktop
+### Connecting a client by hand
 
-`server_http.py` is installed with the bundle. Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+The server registers itself; the installer prints these commands too:
 
-```json
-{
-  "mcpServers": {
-    "navisworks": {
-      "command": "python",
-      "args": ["C:\\ProgramData\\Autodesk\\ApplicationPlugins\\MCPBridge.bundle\\Contents\\server_http.py"]
-    }
-  }
-}
+```bat
+"C:\Program Files\dotnet\dotnet.exe" "C:\ProgramData\Autodesk\ApplicationPlugins\MCPBridge.bundle\Contents\Server\navis_mcp_server.dll" --register claude-desktop
+:: also: --register claude-code | codex | all,  --unregister <client>
 ```
 
-Restart Claude Desktop. In Navisworks, click **AI companion → MCP Bridge** so the bridge listens. The Navisworks tools appear in the tool picker — `health_check`, `list_model_files`, `create_clash_test`, etc. Restart it again after installing a new version so it picks up the new tool list.
+`claude-desktop` writes `mcpServers.navisworks` in `%APPDATA%\Claude\claude_desktop_config.json`; `codex` writes `[mcp_servers.navisworks]` in `%USERPROFILE%\.codex\config.toml`; `claude-code` runs `claude mcp add --scope user navisworks`. For any other MCP client: command `dotnet.exe`, argument the full path of `navis_mcp_server.dll`. The server name stays `navisworks`, so prompts and skills written for earlier versions keep working.
 
-For other MCP clients (Claude Code, Cline, Continue, etc.) the config schema is the same — point `command` + `args` at `server_http.py`.
+Environment variables of the server: `NAVIS_MCP_PORT` (8765), `NAVIS_MCP_TIMEOUT` (30 s), `NAVIS_MCP_LONG_TIMEOUT` (3600 s for opening, refreshing and saving models, clash runs, reports).
 
 ## Build from source
 
-One project, one build per Navisworks release. `NavisworksVersion` picks the API to compile against and the output folder:
+The plugin is one project, one build per Navisworks release. `NavisworksVersion` picks the API to compile against and the output folder:
 
 ```powershell
 dotnet build NavisworksMcpAddin.csproj -c Release -p:NavisworksVersion=2026   # -> bin\Release\2026\
 dotnet build NavisworksMcpAddin.csproj -c Release -p:NavisworksVersion=2027   # -> bin\Release\2027\
+dotnet build server\NavisMcpServer\NavisMcpServer.csproj -c Release           # the MCP server
 ```
 
-Pass `-p:NavisworksInstallDir="..."` too if Navisworks is not in `C:\Program Files\Autodesk\Navisworks Manage <Year>`. Where the APIs differ, the 2027 build defines `NAVIS_2027_OR_LATER` (e.g. a clash comment's author is an `Assignee` in 2027, a string in 2026).
+Pass `-p:NavisworksInstallDir="..."` too if Navisworks is not in `C:\Program Files\Autodesk\Navisworks Manage <Year>`. Where the APIs differ, the 2027 build defines `NAVIS_2027_OR_LATER` (e.g. a clash comment's author is an `Assignee` in 2027, a string in 2026). Each plugin build folder holds `MCPBridge.dll` plus the ribbon files: `en-US\MCPBridge.xaml` (also copied as `de-DE\`) and `Images\MCPBridge_16/32.png`.
 
-Each build folder holds `MCPBridge.dll` plus the ribbon files: `en-US\MCPBridge.xaml` (also copied as `de-DE\`) and `Images\MCPBridge_16/32.png`. To ship a build, copy the whole `bin\Release\<Year>\` folder to `release\MCPBridge.bundle\Contents\<Year>\`, copy `server_http.py` into `release\MCPBridge.bundle\Contents\`, bump the version in `PackageContents.xml`, and run `INSTALL.BAT`.
-
-### Install package for another PC
+### Install package
 
 ```powershell
-.\Build-Package.ps1
+.\Build-Package.ps1           # build everything and make the package
+.\Build-Package.ps1 -Deploy   # also install it on this PC (INSTALL.BAT I), AI clients untouched
 ```
 
-Builds both releases and writes `dist\NavisworksMCP-<version>\` plus `dist\NavisworksMCP-<version>.7z` (`dist\` is git-ignored; the version is read from `release\MCPBridge.bundle\PackageContents.xml`). The archive holds `INSTALL.BAT`, `README.md` and `MCPBridge.bundle\`. On the other PC: unpack it, close Navisworks and run `INSTALL.BAT`. Needs 7-Zip (`-SevenZip <path>` if it is not in the default place).
+Writes `dist\NavisworksMCP-<version>\` (`INSTALL.BAT`, `RELEASE.md`, `README.md`, `MCPBridge.bundle\`) and `dist\NavisworksMCP-<version>.7z` (`.zip` without 7-Zip). `dist\` is git-ignored; archives of earlier versions stay there. The version has one source — the `Version` constant in `MCPBridgePlugin.cs`; the bundle manifest (`installer\PackageContents.xml`), the server and the release notes (`installer\RELEASE.md`) get the same number.
 
-### Smoke test
-
-`tests/smoke_test.py` exercises the model-file, view and clash-result routes against a running Navisworks (2026 or 2027) over HTTP:
+### Tests
 
 ```powershell
-python tests\smoke_test.py <work_dir> <a1.ifc> <a2.ifc> <b1.ifc> <b2.ifc>
+python tests\mcp_server_test.py                                            # MCP server, against a fake bridge
+python tests\smoke_test.py <work_dir> <a1.ifc> <a2.ifc> <b1.ifc> <b2.ifc>   # plugin routes, against Navisworks
 ```
 
-It replaces the open document — start Navisworks with an empty document. It writes only into `<work_dir>`; the IFC files are read (the first one gets its modification time touched). Use copies, not live project files.
+`mcp_server_test.py` needs no Navisworks: it starts a fake bridge and checks initialize, the tool list, routing and argument renames, images, errors, the product check and that a slow call does not block others. `smoke_test.py` exercises the model-file, view and clash-result routes over HTTP against a running Navisworks (2026 or 2027) with the bridge started. It replaces the open document — start Navisworks with an empty document. It writes only into `<work_dir>`; the IFC files are read (the first one gets its modification time touched). Use copies, not live project files. Python is needed for the tests only.
+
+`INSTALL.BAT` can be pointed at a sandbox for tests: `NAVMCP_TARGET`, `NAVMCP_PROGRAMFILES`, `NAVMCP_APPDATA`, `NAVMCP_CLAUDE_CONFIG`, `NAVMCP_CODEX_CONFIG`, `NAVMCP_NO_CLIENTS=1`, `NAVMCP_NO_CLAUDE_CODE=1`, `NAVMCP_NO_RUNNING_CHECK=1` (see its header).
 
 ## How a tool call flows end-to-end
 
@@ -148,21 +139,21 @@ It replaces the open document — start Navisworks with an empty document. It wr
   <img src="docs/connection-flow.svg" alt="Connection flow" width="100%">
 </p>
 
-1. The MCP client sends a JSON-RPC `tools/call` over **stdio** to `server_http.py`.
-2. `server_http.py` looks the tool name up in `ROUTES`, remaps any user-facing argument names (e.g. `test_name` → `name`), and **POSTs** the JSON body to `http://localhost:8765/<route>` from a worker thread, so long calls don't block the stdio connection.
+1. The MCP client sends a JSON-RPC `tools/call` over **stdio** to `navis_mcp_server.dll`.
+2. The server looks the tool up in the `bridge` table of `tools.json` (its plugin route, argument renames such as `test_name` → `name`, whether it may take long) and **POSTs** the JSON body to `http://localhost:8765/<route>`. Requests run concurrently, so a long call doesn't block others.
 3. The addin receives the request on a worker thread, then marshals the actual API call onto the **Navisworks UI thread** using `SynchronizationContext.Send`. The Navisworks API is single-threaded; this is the only safe way to call it.
 4. The handler runs the NwApi call, builds an anonymous result object, and returns it.
 5. The addin serializes that to JSON and writes it back as the HTTP response.
-6. `server_http.py` wraps it in an MCP `CallToolResult` and writes that to stdout. A result carrying `image_png_base64` (view captures) becomes an MCP image.
+6. The server wraps it in an MCP `CallToolResult` and writes that to stdout. A result carrying `image_png_base64` (view captures) becomes an MCP image.
 7. The MCP client renders the result in the chat.
 
-If the handler throws, the addin returns HTTP 500 with `{error, detail, path}`, and `server_http.py` surfaces that body verbatim with `isError: true` — no information loss.
+If the handler throws, the addin returns HTTP 500 with `{error, detail, path}`, and the server returns the detail with `isError: true` — no information loss. Before the first call the server checks `/health` for `product: "Navisworks"`, so another program on the port is reported as such.
 
 Most calls answer in milliseconds and time out after 30 s. Opening, appending, refreshing and saving models, running clash tests, auto-grouping and reports may take up to an hour on large projects.
 
-## Available tools (61)
+## Available tools (63)
 
-Argument names below are the **MCP tool argument names** (what the LLM sees). The addin's HTTP body uses some shorter aliases — `server_http.py` does the rename.
+Argument names below are the **MCP tool argument names** (what the LLM sees). The addin's HTTP body uses some shorter aliases — the server does the rename.
 
 ### Document
 
@@ -277,7 +268,7 @@ Zoom and section box warn when the items span kilometres — usually files in di
 | `delete_viewpoint` | `name` | Remove a saved viewpoint. |
 | `get_current_viewpoint` | — | Current camera position, projection, focal distance. |
 
-The complete route list lives in `MCPBridgePlugin.cs` (`Dispatch`); the tool definitions in `server_http.py` (`TOOLS`, `ROUTES`). Planned tools are in [ROADMAP.md](ROADMAP.md).
+The complete route list lives in `MCPBridgePlugin.cs` (`Dispatch`); the tool definitions in `server\NavisMcpServer\tools.json` (`tools` for the client, `bridge` for routes and renames). Planned tools are in [ROADMAP.md](ROADMAP.md).
 
 ## Troubleshooting
 
@@ -291,7 +282,7 @@ The bridge starts only when you click **AI companion → MCP Bridge** in Naviswo
 Some Navisworks operations open a modal dialog (missing files when opening, file errors). While it is open the UI thread — and with it every bridge call — waits. Click it away in Navisworks.
 
 **Port 8765 already in use.**
-Edit the `Port` constant near the top of `MCPBridgePlugin.cs`, rebuild, reinstall. Then update `ADDIN_BASE` in `server_http.py` to match.
+Edit the `Port` constant near the top of `MCPBridgePlugin.cs`, rebuild, reinstall. Then set the environment variable `NAVIS_MCP_PORT` for the MCP server to match.
 
 **HTTP 500 on every call.**
 Check `%TEMP%\navisworks_mcp_addin.log`. Most often the message is `no active document` — open a model file and retry.
@@ -309,11 +300,11 @@ The handler is trying to assign `Status` directly on a resolved `ClashResultGrou
 Navisworks doesn't auto-save clash data. After grouping or statusing clashes via MCP, save the `.nwf` / `.nwd` (`save_document`, or `File → Save`) before closing — otherwise the groups are lost on reload.
 
 **Claude shows the navisworks server but no tools list it.**
-The Python server probably crashed on startup. Run it manually to see the error:
+The server probably fails to start. Check that it runs and which version it is:
 ```powershell
-python C:\ProgramData\Autodesk\ApplicationPlugins\MCPBridge.bundle\Contents\server_http.py --test
+dotnet "C:\ProgramData\Autodesk\ApplicationPlugins\MCPBridge.bundle\Contents\Server\navis_mcp_server.dll" --version
 ```
-This runs the self-test (no MCP client needed) and prints the addin's `/health` plus document info to stderr.
+An error about the framework means .NET 8 or newer is missing. If the client config still runs `python ... server_http.py`, run `INSTALL.BAT` again — it switches the client to the .NET server.
 
 **Two MCP clients can't share the bridge at the same time.**
 The HTTP listener accepts one request at a time and serializes them onto the UI thread. Two clients work fine — they queue. But if you have, say, both Claude Desktop and Cline configured to talk to the same Navisworks, the plugin will service them round-robin. There is no per-client isolation.
@@ -323,16 +314,16 @@ The HTTP listener accepts one request at a time and serializes them onto the UI 
 | File | What it contains |
 |---|---|
 | `%TEMP%\navisworks_mcp_addin.log` | Every request the addin received, plus exception detail. Append-only. |
-| stderr of `server_http.py` | Python-side errors (rare — most issues end up in the addin log). MCP clients usually surface this in their dev console. |
+| stderr of `navis_mcp_server.dll` | Server-side errors (rare — most issues end up in the addin log). MCP clients usually surface this in their dev console or MCP log. |
 
 ## Project layout
 
 ```
 Navisworks_MCP/
 ├── README.md                    ← you are here
-├── ROADMAP.md                   ← planned tools
-├── INSTALL.BAT                  ← installs release\MCPBridge.bundle into ApplicationPlugins
-├── NavisworksMcpAddin.csproj    ← one project, -p:NavisworksVersion=2026|2027
+├── ROADMAP.md                   ← development stages, tool catalogue, known issues
+├── Build-Package.ps1            ← builds everything into dist\NavisworksMCP-<version>\ + archive
+├── NavisworksMcpAddin.csproj    ← the plugin, -p:NavisworksVersion=2026|2027
 ├── NavisworksMcpAddin.sln
 ├── MCPBridgePlugin.cs           ← ribbon command, HTTP listener, router, JSON, base handlers
 ├── en-US/MCPBridge.xaml         ← "AI companion" ribbon tab layout
@@ -341,16 +332,19 @@ Navisworks_MCP/
 ├── ViewHandlers.cs              ← partial Handlers — capture, zoom, section box
 ├── ClashGroupHandlers.cs        ← partial Handlers — clash groups
 ├── ClashResultHandlers.cs       ← partial Handlers — clash result status / assignee / comments, zoom, auto-group, report
-├── server_http.py               ← Python MCP server (HTTP edition)
+├── server/
+│   └── NavisMcpServer/          ← the MCP server, net8.0 → navis_mcp_server.dll
+│       ├── tools.json           ← tool definitions + their plugin routes (single source)
+│       ├── McpServer.cs         ← stdio JSON-RPC: initialize, tools/list, tools/call
+│       ├── Bridge.cs            ← HTTP client of the plugin
+│       └── Registration.cs      ← --register / --unregister in AI clients
+├── installer/
+│   ├── INSTALL.BAT              ← installer EN/RU, copied into the package
+│   ├── PackageContents.xml      ← bundle manifest template: Nw23 → Contents\2026, Nw24 → Contents\2027
+│   └── RELEASE.md               ← release notes RU + EN, copied into the package
 ├── tests/
-│   └── smoke_test.py            ← end-to-end check against a running Navisworks
-├── release/
-│   └── MCPBridge.bundle/        ← what INSTALL.BAT installs
-│       ├── PackageContents.xml  ← Nw23 → Contents\2026, Nw24 → Contents\2027
-│       └── Contents/
-│           ├── 2026/               ← MCPBridge.dll, en-US/ + de-DE/MCPBridge.xaml, Images/
-│           ├── 2027/               ← same, built against the 2027 API
-│           └── server_http.py
+│   ├── mcp_server_test.py       ← MCP server against a fake bridge
+│   └── smoke_test.py            ← plugin routes against a running Navisworks
 ├── docs/
 │   ├── architecture.svg
 │   └── connection-flow.svg
@@ -388,8 +382,8 @@ These show up the moment you write a new clash handler. All three are settled in
 ### Adding a new MCP tool
 
 1. A static method on `Handlers` — in the partial-class file for its area (`ModelHandlers.cs`, `ViewHandlers.cs`, `ClashResultHandlers.cs`, …) — and a `case` for its route in `MCPBridgePlugin.cs` `Dispatch`. Update the route list in the file header and the `Routes` constant.
-2. A `Tool(...)` entry in `server_http.py` `TOOLS` and the matching `ROUTES` line (plus `LONG_ROUTES` if it can take long).
-3. Build for 2026 and 2027, copy both DLLs and `server_http.py` into `release\MCPBridge.bundle`, run `INSTALL.BAT`, restart Navisworks and the MCP client.
+2. An entry in `server\NavisMcpServer\tools.json`: under `tools` its name, description and input schema (what the AI sees), under `bridge` its route, any argument renames and `"long": true` if it can take long.
+3. Run `.\Build-Package.ps1 -Deploy` (Navisworks closed), restart Navisworks and the MCP client. `python tests\mcp_server_test.py` checks that every tool has a route.
 
 ## License
 

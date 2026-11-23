@@ -32,7 +32,7 @@ namespace NavisworksMcpAddin
         }
 
         // Shared by /view/capture and /clash/result/zoom. The base64 PNG goes
-        // under image_png_base64; server_http.py turns it into an MCP image.
+        // under image_png_base64; the MCP server turns it into an MCP image.
         private static Dictionary<string, object> Capture(Document doc, Dictionary<string, object> body)
         {
             View view = RequireView(doc);

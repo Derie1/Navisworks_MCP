@@ -4,8 +4,8 @@
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
 //  In-process Navisworks plugin that hosts a tiny HTTP server on
-//  http://localhost:8765/. The Python MCP server (../server_http.py) POSTs
-//  JSON to it; we marshal each call onto the Navisworks UI thread, hit the
+//  http://localhost:8765/. The MCP server (server\NavisMcpServer, a separate
+//  .NET program the AI client starts) POSTs JSON to it; we marshal each call onto the Navisworks UI thread, hit the
 //  API, and return JSON.
 //
 //  Routes
@@ -90,7 +90,7 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.2.1";
+        private const string Version = "2.3.0";
         private const int Routes = 59;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
@@ -265,9 +265,12 @@ namespace NavisworksMcpAddin
             // Health needs neither UI thread nor active document.
             if (path == "/health")
             {
+                // "product" lets the MCP server check that it reached this bridge
+                // and not some other program listening on the port.
                 return new
                 {
                     ok = true,
+                    product = "Navisworks",
                     version = Version,
                     port = Port,
                     routes = Routes

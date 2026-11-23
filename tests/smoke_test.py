@@ -1,7 +1,7 @@
 """
 Smoke test for the MCP Bridge plugin routes added in 2.2 and 2.2.1
 ===================================================================
-Talks to the plugin over HTTP (localhost:8765), like server_http.py does.
+Talks to the plugin over HTTP (localhost:8765), like the MCP server does.
 
     python tests/smoke_test.py <work_dir> <a1.ifc> <a2.ifc> <b1.ifc> <b2.ifc>
 
@@ -76,8 +76,10 @@ def main():
 
     health = call("/health")
     print("plugin:", health)
-    if health.get("version") != "2.2.1":
-        sys.exit("plugin 2.2.1 is not running")
+    # The routes tested here exist since 2.2; any later version must still pass.
+    version = tuple(int(x) for x in str(health.get("version", "0")).split(".")[:2])
+    if version < (2, 2):
+        sys.exit("plugin 2.2 or later is not running")
 
     # ── Model files ───────────────────────────────────────────────────
     check("new_document", "/model/new", {"discard_changes": True})
