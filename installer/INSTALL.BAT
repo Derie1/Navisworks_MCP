@@ -99,12 +99,14 @@ if exist "%TARGET%\Contents\server_http.py" set "OLD_PYTHON=1"
 echo.
 echo %M_COPYING%
 echo   %TARGET%
+call :free_server_dll
 rem /MIR also removes the Python server of versions up to 2.2.x.
 robocopy "%SOURCE%" "%TARGET%" /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 (
     echo %M_COPY_FAILED%
     goto :fail
 )
+if defined SERVER_IN_USE echo %M_SERVER_IN_USE%
 rem Remove the "downloaded from the internet" mark so .NET loads the DLLs.
 powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%TARGET%' -Recurse -File | Unblock-File" >nul 2>&1
 if defined OLD_PYTHON echo %M_OLD_PYTHON_REMOVED%
@@ -119,6 +121,21 @@ echo %M_RUN_HINT_1%
 echo %M_RUN_HINT_2%
 echo %M_RUN_HINT_3%
 goto :end
+
+rem ---------------------------------------------------------------- running MCP server
+rem An open AI client keeps navis_mcp_server.dll loaded, and a loaded DLL cannot be overwritten. It can be
+rem moved within the drive, though: the running server goes on with the moved copy, the client starts the
+rem new one after a restart. Copies moved by earlier installs are deleted once no server uses them.
+:free_server_dll
+set "SERVER_IN_USE="
+del /q "%TEMP%\navis_mcp_server_*.dll.old" >nul 2>&1
+if not exist "%SERVER_DLL%" exit /b 0
+fc /b "%SERVER_DLL%" "%SOURCE%\Contents\Server\navis_mcp_server.dll" >nul 2>&1 && exit /b 0
+set "OLD_DLL=%TEMP%\navis_mcp_server_%RANDOM%%RANDOM%.dll.old"
+move /y "%SERVER_DLL%" "%OLD_DLL%" >nul 2>&1 || exit /b 0
+del /q "%OLD_DLL%" >nul 2>&1
+if exist "%OLD_DLL%" set "SERVER_IN_USE=1"
+exit /b 0
 
 rem ---------------------------------------------------------------- old plugin copies
 rem Earlier versions installed the same plugin as a loose folder. Next to the bundle it would load
@@ -237,6 +254,8 @@ where claude >nul 2>&1 || goto :remove_files
 if not errorlevel 1 echo   Claude Code: %M_CLIENT_REMOVED%
 :remove_files
 call :remove_old_installs
+rem A server still running in an AI client keeps its DLL loaded: move it out so the folder can go.
+if exist "%SERVER_DLL%" move /y "%SERVER_DLL%" "%TEMP%\navis_mcp_server_%RANDOM%%RANDOM%.dll.old" >nul 2>&1
 rmdir /s /q "%TARGET%" >nul 2>&1
 if exist "%TARGET%" (
     echo %M_REMOVE_FAILED%
@@ -309,6 +328,7 @@ set "M_NO_PACKAGE_1=The plugin files were not found next to INSTALL.BAT:"
 set "M_NO_PACKAGE_2=Unpack the whole package and run INSTALL.BAT from its folder."
 set "M_COPYING=Installing the plugin to:"
 set "M_COPY_FAILED=Copying failed. Run INSTALL.BAT as administrator."
+set "M_SERVER_IN_USE=The MCP server is running in an AI client: restart the client to use the new version."
 set "M_DONE=Plugin installed."
 set "M_OLD_PYTHON_REMOVED=The old Python server server_http.py was removed."
 set "M_OLD_COPY_REMOVED=Removed an old copy of the plugin:"
@@ -350,6 +370,7 @@ set "M_NO_PACKAGE_1=Рядом с INSTALL.BAT не найдены файлы п�
 set "M_NO_PACKAGE_2=Распакуйте пакет целиком и запустите INSTALL.BAT из его папки."
 set "M_COPYING=Устанавливаю плагин в папку:"
 set "M_COPY_FAILED=Не удалось скопировать файлы. Запустите INSTALL.BAT от имени администратора."
+set "M_SERVER_IN_USE=MCP-сервер сейчас запущен ИИ-клиентом: перезапустите клиент, чтобы работала новая версия."
 set "M_DONE=Плагин установлен."
 set "M_OLD_PYTHON_REMOVED=Старый сервер на Python, server_http.py, удалён."
 set "M_OLD_COPY_REMOVED=Удалена старая копия плагина:"

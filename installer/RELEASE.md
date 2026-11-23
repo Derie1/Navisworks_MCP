@@ -15,7 +15,15 @@ Claude Desktop, Claude Code, Codex или другому клиенту MCP — 
 Мост включается только кнопкой **AI companion → MCP Bridge** в Navisworks; связь идёт лишь внутри
 компьютера (localhost).
 
-**Новое в 2.3.0:**
+**Новое в 2.4.0 — положение моделей** (диалог Units and Transform):
+- Ассистент читает единицы, смещение, поворот и масштаб каждой подгруженной модели и её габариты —
+  по ним видно IFC, пришедший со смещённой точкой вставки.
+- Может сдвинуть, повернуть, отмасштабировать модель или сменить её единицы, задав значения или
+  добавив их к текущему положению, и вернуть модель в исходное положение. Геопривязка IFC при этом
+  сохраняется.
+- Установщик работает и при открытых ИИ-клиентах: после установки клиент достаточно перезапустить.
+
+*В 2.3.0:*
 - MCP-сервер теперь на .NET (`navis_mcp_server.dll`) вместо Python: Python ставить не нужно.
 - Новый установщик на русском и английском: ставит плагин, удаляет старый Python-сервер и сам
   подключает сервер к Claude Desktop, Claude Code и Codex.
@@ -52,7 +60,14 @@ sub-models, clash tests, sets, properties, viewpoints, view captures.
 The bridge starts only from **AI companion → MCP Bridge** in Navisworks and talks only inside the
 computer (localhost).
 
-**New in 2.3.0:**
+**New in 2.4.0 — model position** (the Units and Transform dialog):
+- The assistant reads units, translation, rotation and scale of every loaded model and its bounding
+  box — an IFC that came with a shifted insertion point stands out.
+- It can move, rotate or scale a model or change its units, setting values or adding them to the
+  current position, and put a model back where it was. The IFC's georeference is kept.
+- The installer works while AI clients are open: restart the client after installing.
+
+*In 2.3.0:*
 - The MCP server is now .NET (`navis_mcp_server.dll`) instead of Python: no Python needed.
 - A new installer in English and Russian: installs the plugin, removes the old Python server and
   connects the server to Claude Desktop, Claude Code and Codex.

@@ -901,6 +901,139 @@
       }
     },
     {
+      "name": "get_model_transform",
+      "description": "Position of loaded models, as in Navisworks' Units and Transform dialog: units, translation [x, y, z] (document units), rotation (angle in degrees about an axis), scale [x, y, z], reflection, and the model's bounding box (min / max / center, document units). Without index or name: all models. The transform already holds what the file brings: an IFC's georeference shows up as a translation (e.g. 685198, 5379841, 434 m) and a file in mm as units Millimeters - that is normal. A model whose box is far from the others usually came with a shifted insertion point.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Model index from list_model_files."
+          },
+          "name": {
+            "type": "string",
+            "description": "Model name or file name, e.g. 'ARC.ifc'."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_model_transform",
+      "description": "Move, rotate or scale one loaded model, or change its units - Navisworks' Units and Transform dialog. Pass only what changes. mode 'set' replaces the values (like the dialog), 'add' applies them on top of the current position (translation added, rotation added, scale multiplied). Changing units rescales the model (mm read as m = 1000 times too big). Returns the position before and after. Only models listed by list_model_files can be moved: an appended .nwf expands into its files, an appended .nwd is one model (to move a file inside it, open the .nwf it was built from). The position is stored in the open .nwf/.nwd: save the document afterwards and rebuild the files that append it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Model index from list_model_files."
+          },
+          "name": {
+            "type": "string",
+            "description": "Model name or file name, e.g. 'ARC.ifc'."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "set",
+              "add"
+            ],
+            "default": "set"
+          },
+          "translation": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "[x, y, z] in document units."
+          },
+          "rotation_deg": {
+            "type": "number",
+            "description": "Rotation angle in degrees."
+          },
+          "rotation_axis": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Rotation axis [x, y, z]; default [0, 0, 1] (about Z)."
+          },
+          "scale": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "[x, y, z], or one number for all axes."
+          },
+          "units": {
+            "type": "string",
+            "enum": [
+              "Meters",
+              "Centimeters",
+              "Millimeters",
+              "Feet",
+              "Inches",
+              "Yards",
+              "Kilometers",
+              "Miles",
+              "Micrometers",
+              "Mils",
+              "Microinches"
+            ]
+          },
+          "reflected": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "reset_model_transform",
+      "description": "Undo the position changes made through the bridge: put one model back to the units and transform it had when the bridge first read it in the open document (opening or clearing a document forgets that). Not a reset to zero - that would drop the file's own georeference. Answers changed=false if the model was not changed through the bridge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Model index from list_model_files."
+          },
+          "name": {
+            "type": "string",
+            "description": "Model name or file name, e.g. 'ARC.ifc'."
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "capture_view",
       "description": "Render the current Navisworks view and return it as an image, so you can see the model. Optionally also save the PNG to save_path.",
       "inputSchema": {
@@ -1392,6 +1525,15 @@
     "convert_to_nwd": {
       "route": "/model/convert",
       "long": true
+    },
+    "get_model_transform": {
+      "route": "/model/transform/get"
+    },
+    "set_model_transform": {
+      "route": "/model/transform/set"
+    },
+    "reset_model_transform": {
+      "route": "/model/transform/reset"
     },
     "capture_view": {
       "route": "/view/capture"

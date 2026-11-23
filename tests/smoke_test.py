@@ -65,6 +65,80 @@ def save_image(res, path):
     return "FAIL: no image"
 
 
+def close(a, b, tol=1e-3):
+    return all(abs(x - y) <= tol * max(1.0, abs(x), abs(y)) for x, y in zip(a, b))
+
+
+def size(box):
+    return [mx - mn for mn, mx in zip(box["min"], box["max"])]
+
+
+def transform_checks(j, names):
+    """Model position (2.3.1+): runs on Master.nwf = the four IFC files, b2 is moved."""
+    check("open_document Master.nwf (transforms)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True},
+          lambda r: r["modelCount"] == 4 or f"FAIL {r['modelCount']} models")
+    b2 = names[3]
+    allm = check("get_model_transform (all)", "/model/transform/get", None,
+                 lambda r: (r["count"] == 4
+                            and "; ".join(f"{m['units']} t={m['translation']}" for m in r["models"]))
+                           or f"FAIL {r}")
+    base = next(m for m in allm.get("models", []) if m["name"] == b2)["box"]
+
+    def moved(r, dx, dy, dz):
+        b = r["after"]["box"]
+        want_min = [base["min"][0] + dx, base["min"][1] + dy, base["min"][2] + dz]
+        return close(b["min"], want_min) or f"FAIL box.min {b['min']} != {want_min}"
+
+    check("set translation [10,0,0]", "/model/transform/set", {"name": b2, "translation": [10, 0, 0]},
+          lambda r: (r["after"]["translation"] == [10, 0, 0] and moved(r, 10, 0, 0)) or f"FAIL {r['after']}")
+    check("add translation [0,5,0]", "/model/transform/set", {"name": b2, "mode": "add", "translation": [0, 5, 0]},
+          lambda r: (r["after"]["translation"] == [10, 5, 0] and moved(r, 10, 5, 0)) or f"FAIL {r['after']}")
+    check("set rotation 90 about Z", "/model/transform/set", {"name": b2, "rotation_deg": 90},
+          lambda r: (abs(r["after"]["rotation"]["angleDeg"] - 90) < 1e-6 and close(r["after"]["rotation"]["axis"], [0, 0, 1])
+                     and r["after"]["translation"] == [10, 5, 0]) or f"FAIL {r['after']}")
+    check("add rotation 90 -> 180", "/model/transform/set", {"name": b2, "mode": "add", "rotation_deg": 90},
+          lambda r: abs(r["after"]["rotation"]["angleDeg"] - 180) < 1e-6 or f"FAIL {r['after']['rotation']}")
+    check("set scale 2 -> box twice as big", "/model/transform/set", {"name": b2, "scale": 2},
+          lambda r: (r["after"]["scale"] == [2, 2, 2] and close(size(r["after"]["box"]), [2 * s for s in size(r["before"]["box"])]))
+                    or f"FAIL {size(r['before']['box'])} -> {size(r['after']['box'])}")
+    # Other units than the file's: mm -> m makes it 1000x bigger, m -> mm 1000x smaller.
+    original_units = next(m for m in allm.get("models", []) if m["name"] == b2)["units"]
+    new_units, factor = ("Meters", 1000.0) if original_units == "Millimeters" else ("Millimeters", 0.001)
+    check(f"units {original_units} -> {new_units}: box x{factor:g}", "/model/transform/set", {"name": b2, "units": new_units},
+          lambda r: (r["after"]["units"] == new_units
+                     and close(size(r["after"]["box"]), [x * factor for x in size(r["before"]["box"])], 1e-2))
+                    or f"FAIL {r['before']['units']}:{size(r['before']['box'])} -> {size(r['after']['box'])}")
+    check("reset_model_transform -> original box and units", "/model/transform/reset", {"name": b2},
+          lambda r: (r["changed"] and r["after"]["units"] == original_units
+                     and close(r["after"]["box"]["min"], base["min"]) and close(r["after"]["box"]["max"], base["max"]))
+                    or f"FAIL {r.get('after', r)}")
+    a1 = names[0]
+    geo = next(m for m in allm.get("models", []) if m["name"] == a1)["translation"]
+    check("set a1 translation to 0", "/model/transform/set", {"name": a1, "translation": [0, 0, 0]},
+          lambda r: r["after"]["translation"] == [0, 0, 0] or f"FAIL {r['after']}")
+    check("reset a1 -> its IFC georeference is back", "/model/transform/reset", {"name": a1},
+          lambda r: (close(r["after"]["translation"], geo) and f"translation {r['after']['translation']}")
+                    or f"FAIL {r['after']['translation']} != {geo}")
+    check("set: nothing to change -> error", "/model/transform/set", {"name": b2}, expect_error=True)
+    check("set: bad units -> error", "/model/transform/set", {"name": b2, "units": "Parsecs"}, expect_error=True)
+    check("set: scale 0 -> error", "/model/transform/set", {"name": b2, "scale": 0}, expect_error=True)
+
+    check("move b2 by [10,0,0] and save Moved.nwf", "/model/transform/set", {"name": b2, "translation": [10, 0, 0]})
+    check("save_document Moved.nwf", "/model/save", {"path": j("Moved.nwf")})
+    check("open_document Moved.nwf", "/model/open", {"path": j("Moved.nwf"), "discard_changes": True})
+    check("position kept after reopening", "/model/transform/get", {"name": b2},
+          lambda r: (r["translation"] == [10, 0, 0] and close(r["box"]["min"], [base["min"][0] + 10] + base["min"][1:]))
+                    or f"FAIL {r}")
+
+    check("open_document Master_2026.nwd", "/model/open", {"path": j("Master_2026.nwd"), "discard_changes": True})
+    check("file inside .nwd -> error with hint", "/model/transform/set", {"name": b2, "translation": [1, 0, 0]},
+          expect_error=True)
+    check("whole .nwd can be moved", "/model/transform/set", {"index": 0, "mode": "add", "translation": [0, 0, 3]},
+          lambda r: close(r["after"]["box"]["min"], [r["before"]["box"]["min"][0], r["before"]["box"]["min"][1],
+                                                     r["before"]["box"]["min"][2] + 3]) or f"FAIL {r}")
+    check("new_document (clean up)", "/model/new", {"discard_changes": True})
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -222,6 +296,8 @@ def main():
     check("export_clash_report html (New+Active)", "/clash/report",
           {"path": j("report.html"), "statuses": ["New", "Active"]}, lambda r: f"{r['rows']} rows")
     check("save_document Master_clash.nwf", "/model/save", {"path": j("Master_clash.nwf")})
+
+    transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
     print(f"\n{passed}/{len(results)} checks passed. Output: {work}")

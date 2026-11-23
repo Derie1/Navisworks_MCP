@@ -51,6 +51,7 @@ namespace NavisworksMcpAddin
             {
                 throw new InvalidOperationException($"Navisworks could not open '{path}'");
             }
+            ForgetOriginalTransforms();
             return DescribeDocument(doc);
         }
 
@@ -60,6 +61,7 @@ namespace NavisworksMcpAddin
                 ?? throw new InvalidOperationException("no active document");
             RequireNoUnsavedChanges(doc, body);
             doc.Clear();
+            ForgetOriginalTransforms();
             return new { cleared = true };
         }
 
@@ -212,6 +214,7 @@ namespace NavisworksMcpAddin
             string label = VersionLabel(GetString(body, "version", null));
             DocumentFileVersion version = ParseFileVersion(label);
             string original = doc.IsClear ? null : doc.FileName;
+            ForgetOriginalTransforms();
 
             var results = new List<object>();
             int converted = 0;

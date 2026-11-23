@@ -1,5 +1,5 @@
 // =============================================================================
-//  Navisworks MCP Bridge — full implementation (59 routes)
+//  Navisworks MCP Bridge — full implementation (62 routes)
 // =============================================================================
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
@@ -14,6 +14,7 @@
 //  File nodes       (2)  /files/{select,color}  sub-models by name
 //  Model files      (9)  /model/{files,open,new,append,remove,update,save,
 //                                publish,convert}          ModelHandlers.cs
+//  Model transform  (3)  /model/transform/{get,set,reset} TransformHandlers.cs
 //  View             (5)  /view/{capture,zoom,section-box,section-clear,
 //                               section-get}               ViewHandlers.cs
 //  Selection        (6)  /selection/{get,select-all,deselect-all,invert,
@@ -90,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.3.0";
-        private const int Routes = 59;
+        private const string Version = "2.4.0";
+        private const int Routes = 62;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -301,6 +302,9 @@ namespace NavisworksMcpAddin
                     case "/model/save": return Handlers.ModelSave(body);
                     case "/model/publish": return Handlers.ModelPublish(body);
                     case "/model/convert": return Handlers.ModelConvert(body);
+                    case "/model/transform/get": return Handlers.ModelTransformGet(body);
+                    case "/model/transform/set": return Handlers.ModelTransformSet(body);
+                    case "/model/transform/reset": return Handlers.ModelTransformReset(body);
 
                     // View
                     case "/view/capture": return Handlers.ViewCapture(body);

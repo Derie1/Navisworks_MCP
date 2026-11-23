@@ -8,9 +8,10 @@
 > auto-grouping, reports). 2.2.1 adds `select_files` / `color_files`: whole
 > sub-models by file name, without walking the geometry. 2.3.0 replaces the Python
 > MCP server with a .NET one and adds an installer (EN/RU) that connects it to
-> Claude Desktop, Claude Code and Codex.
+> Claude Desktop, Claude Code and Codex. 2.4.0 adds the model position tools
+> (Units and Transform: read, move / rotate / scale, undo).
 
-> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides — 63 tools through the Model Context Protocol.
+> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides, model position — 66 tools through the Model Context Protocol.
 
 <p align="center">
   <img src="docs/architecture.svg" alt="Architecture diagram" width="100%">
@@ -68,6 +69,7 @@ What it does:
 - Removes what earlier versions left behind: the Python server `Contents\server_http.py`, and loose-folder installs (`Plugins\MCPBridge`, `Plugins\NavisworksMcpAddin` in Program Files or `%APPDATA%`) that would load the plugin twice and fight over port 8765. Removing one from Program Files may need *Run as administrator*.
 - Connects the server to the AI clients it finds — Claude Desktop, Claude Code, Codex — asking for each. A client that already has a `navisworks` server (e.g. the Python one) is switched over without asking. Other entries in their configs stay untouched; a copy `<config>.bak-navisworks` is kept before the first change.
 - Refuses to run while Navisworks is open (the DLL is locked) and strips the downloaded-file mark so .NET can load the DLLs.
+- Works while AI clients are open: a running server keeps `navis_mcp_server.dll` loaded, so the installer moves the old DLL to `%TEMP%` (the running server goes on with it) and tells you to restart the client. Such copies are deleted by the next install once free.
 
 Navisworks does **not** scan `%APPDATA%\Autodesk\Navisworks <Product> <Year>\Plugins\`. Plugins load from `<install dir>\Plugins\<Name>\<Name>.dll` or from bundles in `ApplicationPlugins` — this project uses the bundle.
 
@@ -83,9 +85,9 @@ Or test from PowerShell with no MCP client involved:
 Invoke-RestMethod http://localhost:8765/health
 # ok      : True
 # product : Navisworks
-# version : 2.3.0
+# version : 2.4.0
 # port    : 8765
-# routes  : 59
+# routes  : 62
 ```
 
 ### Connecting a client by hand
@@ -151,7 +153,7 @@ If the handler throws, the addin returns HTTP 500 with `{error, detail, path}`, 
 
 Most calls answer in milliseconds and time out after 30 s. Opening, appending, refreshing and saving models, running clash tests, auto-grouping and reports may take up to an hour on large projects.
 
-## Available tools (63)
+## Available tools (66)
 
 Argument names below are the **MCP tool argument names** (what the LLM sees). The addin's HTTP body uses some shorter aliases — the server does the rename.
 
@@ -181,6 +183,18 @@ Argument names below are the **MCP tool argument names** (what the LLM sees). Th
 | `convert_to_nwd` | `paths[]` | Open each file and save it as `<name>.nwd` (next to it or in `output_dir`); reopens the original document afterwards. |
 
 `open_document`, `new_document` and `convert_to_nwd` refuse to throw away unsaved changes unless `discard_changes=true`.
+
+### Model position
+
+Navisworks' **Units and Transform** dialog for the models listed by `list_model_files`.
+
+| Tool | Required args | Purpose |
+|---|---|---|
+| `get_model_transform` | — | Units, translation, rotation (degrees + axis), scale, reflection and bounding box of one model (`index` / `name`) or all. A box far from the others usually means a shifted insertion point. |
+| `set_model_transform` | `index` or `name` | Change translation, rotation (`rotation_deg` about `rotation_axis`, default Z), scale, units or reflection — only what is passed. `mode`: `set` (like the dialog) or `add` (on top of the current position). Returns the position before and after. |
+| `reset_model_transform` | `index` or `name` | Undo the bridge's changes: back to the units and transform the model had when the bridge first read it in the open document. |
+
+The transform already holds what the file brings: the IFC loader puts the file's **georeference** there (e.g. a translation of 685198, 5379841, 434 m) and a file in mm shows units `Millimeters`. That is why there is no "reset to zero": it would move such a model to the origin. Translations are in document units. An appended .nwf expands into its files, each movable; an appended .nwd is one model — to move a file inside it, open the .nwf it was built from. The position is stored in the open .nwf / .nwd: save it and rebuild the files that append it. Changing units rescales the model (mm read as m = 1000 times too big).
 
 ### View
 
@@ -329,6 +343,7 @@ Navisworks_MCP/
 ├── en-US/MCPBridge.xaml         ← "AI companion" ribbon tab layout
 ├── Images/MCPBridge_16/32.png   ← ribbon button icons
 ├── ModelHandlers.cs             ← partial Handlers — open / append / remove / save / publish / convert
+├── TransformHandlers.cs         ← partial Handlers — model position (Units and Transform)
 ├── ViewHandlers.cs              ← partial Handlers — capture, zoom, section box
 ├── ClashGroupHandlers.cs        ← partial Handlers — clash groups
 ├── ClashResultHandlers.cs       ← partial Handlers — clash result status / assignee / comments, zoom, auto-group, report
@@ -377,6 +392,7 @@ These show up the moment you write a new clash handler. All three are settled in
 
 - **`SaveFile` to .nwd swaps the open document** for that .nwd (all files collapse into one model). `ExportToNwd` writes the same file and leaves the document alone — `save_document` uses it by default.
 - **Publishing needs an open .nwd.** From an .nwf, `PublishFile` pops "You may only publish NWD files".
+- **Model transforms carry the file's own placement.** `Model.Transform` of a freshly loaded IFC already holds its georeference translation (and, for files in mm, `Units.Millimeters`). `Transform3D.Factor()` splits it into translation / rotation / scale (no public constructor for `Transform3DComponents` — change the one `Factor()` returns and `Combine()` it); write back with `DocumentModels.SetModelUnitsAndTransform`.
 - **File-format versions:** `DocumentFileVersion` values are raw format numbers; 2016–2025 are all 448, 2026 is 451. `NwdExportOptions.FileVersion` takes that number as `int`.
 
 ### Adding a new MCP tool
