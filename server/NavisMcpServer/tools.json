@@ -503,7 +503,7 @@
     },
     {
       "name": "select_all",
-      "description": "Select every element in the model.",
+      "description": "Select everything (Navisworks 'Select All'): the model roots are selected, which covers every element. Safe on large models.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -521,7 +521,7 @@
     },
     {
       "name": "invert_selection",
-      "description": "Invert the current selection.",
+      "description": "Invert the current selection with Navisworks' own inversion: the result is the smallest set of tree branches covering everything not selected.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -545,7 +545,7 @@
     },
     {
       "name": "get_current_selection",
-      "description": "Return the elements currently selected in the viewport.",
+      "description": "Return the elements currently selected in the viewport (first 100), each with its hidden flag.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -621,16 +621,35 @@
     },
     {
       "name": "hide_elements",
-      "description": "Hide the currently selected elements.",
+      "description": "Hide the current selection or a saved selection/search set (Navisworks 'Hide').",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "set_name": {
+            "type": "string",
+            "description": "Selection or search set to hide instead of the current selection."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "hide_unselected",
+      "description": "Hide everything except the current selection or a saved set (Navisworks 'Hide Unselected'). The kept items are made visible even if they were hidden. Uses Navisworks' own inversion, safe on large federated models. hiddenBranches counts hidden tree branches, not single elements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "set_name": {
+            "type": "string",
+            "description": "Selection or search set to keep instead of the current selection."
+          }
+        },
         "required": []
       }
     },
     {
       "name": "unhide_all",
-      "description": "Restore visibility of every hidden element.",
+      "description": "Show every hidden element (Navisworks 'Unhide All'). Fast on any model size.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -638,11 +657,30 @@
       }
     },
     {
-      "name": "isolate_elements",
-      "description": "Hide everything except the current selection.",
+      "name": "unhide_children",
+      "description": "Show the current selection or a saved set together with everything inside it (Navisworks 'Unhide Children'), e.g. bring back one file of a hidden model.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "set_name": {
+            "type": "string",
+            "description": "Selection or search set to show instead of the current selection."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "isolate_elements",
+      "description": "Same as hide_unselected: show only the current selection or a saved set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "set_name": {
+            "type": "string",
+            "description": "Selection or search set to keep instead of the current selection."
+          }
+        },
         "required": []
       }
     },
@@ -1472,8 +1510,14 @@
     "hide_elements": {
       "route": "/elements/hide"
     },
+    "hide_unselected": {
+      "route": "/elements/hide-unselected"
+    },
     "unhide_all": {
       "route": "/elements/unhide-all"
+    },
+    "unhide_children": {
+      "route": "/elements/unhide-children"
     },
     "isolate_elements": {
       "route": "/elements/isolate"

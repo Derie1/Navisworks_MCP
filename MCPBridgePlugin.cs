@@ -91,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.0";
-        private const int Routes = 62;
+        private const string Version = "2.4.1";
+        private const int Routes = 64;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -337,9 +337,11 @@ namespace NavisworksMcpAddin
                     // Overrides
                     case "/elements/color": return Handlers.ElementsColor(body);
                     case "/elements/transparency": return Handlers.ElementsTransparency(body);
-                    case "/elements/hide": return Handlers.ElementsHide();
+                    case "/elements/hide": return Handlers.ElementsHide(body);
+                    case "/elements/hide-unselected": return Handlers.ElementsHideUnselected(body);
+                    case "/elements/isolate": return Handlers.ElementsHideUnselected(body);
                     case "/elements/unhide-all": return Handlers.ElementsUnhideAll();
-                    case "/elements/isolate": return Handlers.ElementsIsolate();
+                    case "/elements/unhide-children": return Handlers.ElementsUnhideChildren(body);
                     case "/elements/reset-overrides": return Handlers.ElementsResetOverrides();
 
                     // Clash
@@ -666,7 +668,8 @@ namespace NavisworksMcpAddin
             var sample = selected.Take(limit).Select(it => new
             {
                 displayName = it.DisplayName,
-                className = it.ClassDisplayName
+                className = it.ClassDisplayName,
+                hidden = it.IsHidden
             }).ToList();
 
             return new
@@ -677,16 +680,13 @@ namespace NavisworksMcpAddin
             };
         }
 
+        // Navisworks' Select All: selects the model roots (which covers
+        // everything) instead of collecting every item of the tree.
         public static object SelectionSelectAll()
         {
             var doc = RequireDocument();
-
-            var all = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc)) all.Add(mi);
-
-            doc.CurrentSelection.CopyFrom(all);
-
-            return new { selected = all.Count };
+            doc.CurrentSelection.SelectAll();
+            return new { selected = doc.CurrentSelection.SelectedItems.Count, selectedAre = "model roots" };
         }
 
         public static object SelectionDeselectAll()
@@ -700,12 +700,10 @@ namespace NavisworksMcpAddin
         {
             var doc = RequireDocument();
 
-            var current = new HashSet<ModelItem>(doc.CurrentSelection.SelectedItems);
-            var inverted = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc))
-            {
-                if (!current.Contains(mi)) inverted.Add(mi);
-            }
+            // Navisworks' own inversion: the smallest set of branches that
+            // covers everything not selected, no walk over the whole tree.
+            var inverted = new ModelItemCollection(doc.CurrentSelection.SelectedItems);
+            inverted.Invert(doc);
             doc.CurrentSelection.CopyFrom(inverted);
 
             return new { selected = inverted.Count };
@@ -1077,54 +1075,7 @@ namespace NavisworksMcpAddin
             return new { applied = items.Count, transparency = t };
         }
 
-        public static object ElementsHide()
-        {
-            var doc = RequireDocument();
-            var items = doc.CurrentSelection.SelectedItems;
-            if (items.Count == 0)
-            {
-                throw new InvalidOperationException("nothing is currently selected");
-            }
-
-            doc.Models.SetHidden(items, true);
-            return new { hidden = items.Count };
-        }
-
-        public static object ElementsUnhideAll()
-        {
-            var doc = RequireDocument();
-
-            var all = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc)) all.Add(mi);
-
-            doc.Models.SetHidden(all, false);
-            return new { unhidden = all.Count };
-        }
-
-        public static object ElementsIsolate()
-        {
-            var doc = RequireDocument();
-            var selected = doc.CurrentSelection.SelectedItems;
-            if (selected.Count == 0)
-            {
-                throw new InvalidOperationException("nothing is currently selected");
-            }
-
-            var keep = new HashSet<ModelItem>(selected);
-            var all = new ModelItemCollection();
-            var toHide = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc))
-            {
-                all.Add(mi);
-                if (!keep.Contains(mi)) toHide.Add(mi);
-            }
-
-            // Show everything first to clear stale hidden state, then hide non-selected.
-            doc.Models.SetHidden(all, false);
-            doc.Models.SetHidden(toHide, true);
-
-            return new { isolated = selected.Count, hidden = toHide.Count };
-        }
+        // Hide / unhide / isolate: VisibilityHandlers.cs.
 
         public static object ElementsResetOverrides()
         {
@@ -1132,9 +1083,7 @@ namespace NavisworksMcpAddin
             doc.Models.ResetAllPermanentMaterials();
 
             // Also unhide everything for a clean slate.
-            var all = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc)) all.Add(mi);
-            doc.Models.SetHidden(all, false);
+            doc.Models.ResetAllHidden();
 
             return new { reset = true };
         }

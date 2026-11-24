@@ -139,6 +139,67 @@ def transform_checks(j, names):
     check("new_document (clean up)", "/model/new", {"discard_changes": True})
 
 
+def hidden_of(select_path, select_body):
+    """Select something, return the hidden flag of the first selected item."""
+    call(select_path, select_body)
+    items = call("/selection/get").get("items", [])
+    return items[0]["hidden"] if items else None
+
+
+def visibility_checks(j, names):
+    """Hide / Hide Unselected / Unhide All / Unhide Children (2.4.1+) on Master.nwf."""
+    check("open_document Master.nwf (visibility)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True},
+          lambda r: r["modelCount"] == 4 or f"FAIL {r['modelCount']} models")
+    a1, b1 = names[0], names[2]
+    file_a1 = ("/files/select", {"names": [a1]})
+    file_b1 = ("/files/select", {"names": [b1]})
+    storey = ("/selection/by-name", {"pattern": "E1_OKRB", "exact": True})  # a storey inside a1
+
+    call("/selection/deselect-all")
+    check("hide_elements: nothing selected -> error", "/elements/hide", None, expect_error=True)
+    check("hide_elements: unknown set -> error", "/elements/hide", {"set_name": "No such set"}, expect_error=True)
+
+    call(*file_a1)
+    check("hide_elements (file a1)", "/elements/hide", None, lambda r: r["hidden"] == 1 or f"FAIL {r}")
+    check("a1 is hidden", "/selection/get", None, lambda r: r["items"][0]["hidden"] is True or f"FAIL {r}")
+    check("unhide_all", "/elements/unhide-all")
+    check("a1 visible after unhide_all", "/selection/get", None,
+          lambda r: r["items"][0]["hidden"] is False or f"FAIL {r}")
+
+    check("select storey E1_OKRB in a1", *storey, lambda r: r["selected"] >= 1 or f"FAIL {r}")
+    check("hide the storey", "/elements/hide")
+    call(*file_a1)
+    check("unhide_children (file a1)", "/elements/unhide-children", None,
+          lambda r: (r["unhidden"] == 1 and r["withChildren"]) or f"FAIL {r}")
+    check("storey visible again", *storey,
+          lambda r: (hidden_of(*storey) is False) or "FAIL storey still hidden")
+
+    call(*file_a1)
+    check("selection set 'MCP keep' = file a1", "/sets/selection/create", {"name": "MCP keep"})
+    call("/selection/deselect-all")
+    check("hide_unselected (set MCP keep)", "/elements/hide-unselected", {"set_name": "MCP keep"},
+          lambda r: (r["kept"] == 1 and r["hiddenBranches"] >= 3 and f"{r['hiddenBranches']} branches hidden")
+                    or f"FAIL {r}")
+    check("b1 hidden, a1 visible", "/selection/get", None,
+          lambda r: (hidden_of(*file_b1) is True and hidden_of(*file_a1) is False) or "FAIL")
+    call(*file_b1)
+    check("isolate_elements (selection b1) = hide_unselected", "/elements/isolate", None,
+          lambda r: r["kept"] == 1 or f"FAIL {r}")
+    check("now a1 hidden, b1 visible", "/selection/get", None,
+          lambda r: (hidden_of(*file_a1) is True and hidden_of(*file_b1) is False) or "FAIL")
+    check("reset_overrides also unhides", "/elements/reset-overrides")
+    check("a1 visible after reset_overrides", "/selection/get", None,
+          lambda r: hidden_of(*file_a1) is False or "FAIL")
+
+    check("select_all (model roots)", "/selection/select-all", None,
+          lambda r: r["selected"] == 4 or f"FAIL {r}")
+    check("invert_selection of everything -> nothing", "/selection/invert", None,
+          lambda r: r["selected"] == 0 or f"FAIL {r}")
+    call(*file_a1)
+    check("invert_selection of a1 -> the other 3 files", "/selection/invert", None,
+          lambda r: r["selected"] == 3 or f"FAIL {r}")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -297,6 +358,8 @@ def main():
           {"path": j("report.html"), "statuses": ["New", "Active"]}, lambda r: f"{r['rows']} rows")
     check("save_document Master_clash.nwf", "/model/save", {"path": j("Master_clash.nwf")})
 
+    if version >= (2, 4) and str(health.get("version")) != "2.4.0":
+        visibility_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
