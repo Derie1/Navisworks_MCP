@@ -369,6 +369,128 @@ def search_checks(j, names):
           lambda r: r["matches"] == n_map or f"FAIL {r}")
 
 
+def set_checks(j, names):
+    """Sets window (2.4.4+): folders, paths, rename, move, update, info, delete; on Master.nwf."""
+    check("open_document Master.nwf (sets)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    a1, b1 = names[0], names[2]
+    types = {v["value"]: v["items"] for v in call("/properties/values", {"category": "Item", "property": "Type"})["values"]}
+    n_cov, n_map = types.get("IfcCovering", 0), types.get("IfcMappedItem", 0)
+    cov = {"category": "Item", "property": "Type", "value": "IfcCovering"}
+    mapped = {"category": "Item", "property": "Type", "value": "IfcMappedItem"}
+
+    def listed():
+        return {s["name"]: s for s in call("/sets/list")["sets"]}
+
+    check("create_set_folder MCP/Трубы", "/sets/folder/create", {"path": "MCP/Трубы"},
+          lambda r: (r["created"] and r["path"] == "MCP/Трубы") or f"FAIL {r}")
+    check("create_set_folder again -> created=false", "/sets/folder/create", {"path": "mcp/трубы"},
+          lambda r: (not r["created"] and r["path"] == "MCP/Трубы") or f"FAIL {r}")
+    call("/files/select", {"names": [a1]})
+    check("create_selection_set by path MCP/Трубы/A1", "/sets/selection/create", {"name": "MCP/Трубы/A1"},
+          lambda r: r["saved"]["path"] == "MCP/Трубы/A1" or f"FAIL {r}")
+    check("create_selection_set same path -> error", "/sets/selection/create", {"name": "MCP/Трубы/A1"},
+          expect_error=True)
+    call("/files/select", {"names": [b1]})
+    check("create_selection_set folder=MCP name=B1 set", "/sets/selection/create", {"name": "B1 set", "folder": "MCP"},
+          lambda r: r["saved"]["path"] == "MCP/B1 set" or f"FAIL {r}")
+    check("list_sets shows folders and types", "/sets/list", None,
+          lambda r: (lambda d: (d.get("MCP", {}).get("type") == "folder" and d.get("MCP/Трубы", {}).get("type") == "folder"
+                                and d.get("MCP/Трубы/A1", {}).get("type") == "selection"
+                                and d["MCP/Трубы/A1"]["folder"] == "MCP/Трубы" and d["MCP/Трубы/A1"]["count"] == 1
+                                and ", ".join(f"{k} ({v['type']})" for k, v in d.items() if k.startswith("MCP")))
+                     or f"FAIL {list(d)}")({s["name"]: s for s in r["sets"]}))
+    check("get_set_info MCP/Трубы/A1", "/sets/info", {"name": "MCP/Трубы/A1"},
+          lambda r: (r["type"] == "selection" and r["folder"] == "MCP/Трубы" and r["count"] == 1
+                     and r["files"][0]["file"] == a1) or f"FAIL {r}")
+    check("get_set_info by bare name A1", "/sets/info", {"name": "a1"},
+          lambda r: r["path"] == "MCP/Трубы/A1" or f"FAIL {r}")
+    check("get_set_info folder MCP", "/sets/info", {"name": "MCP"},
+          lambda r: (r["type"] == "folder" and r["setsInside"] == 2 and r["foldersInside"] == 1) or f"FAIL {r}")
+    check("get_set_info unknown -> error", "/sets/info", {"name": "MCP/nope"}, expect_error=True)
+
+    # update_selection_set: b1 is selected
+    check("update_selection_set A1 add b1", "/sets/selection/update", {"name": "MCP/Трубы/A1", "mode": "add"},
+          lambda r: (r["before"] == 1 and r["after"] == 2) or f"FAIL {r}")
+    check("update_selection_set A1 remove b1", "/sets/selection/update", {"name": "MCP/Трубы/A1", "mode": "remove"},
+          lambda r: r["after"] == 1 or f"FAIL {r}")
+    check("A1 again holds file a1 only", "/sets/info", {"name": "MCP/Трубы/A1"},
+          lambda r: (r["count"] == 1 and r["files"][0]["file"] == a1) or f"FAIL {r}")
+    check("update_selection_set A1 replace with b1", "/sets/selection/update", {"name": "MCP/Трубы/A1"},
+          lambda r: r["after"] == 1 or f"FAIL {r}")
+    check("A1 now holds b1", "/sets/info", {"name": "MCP/Трубы/A1"},
+          lambda r: r["files"][0]["file"] == b1 or f"FAIL {r}")
+    check("update_selection_set bad mode -> error", "/sets/selection/update", {"name": "A1", "mode": "swap"},
+          expect_error=True)
+    call("/files/select", {"names": [a1]})
+    check("update_selection_set A1 replace with a1", "/sets/selection/update", {"name": "A1", "mode": "replace"})
+
+    check("rename_set A1 -> A1 renamed", "/sets/rename", {"name": "MCP/Трубы/A1", "new_name": "A1 renamed"},
+          lambda r: r["path"] == "MCP/Трубы/A1 renamed" or f"FAIL {r}")
+    check("rename_set onto a sibling name -> error", "/sets/rename", {"name": "MCP/B1 set", "new_name": "Трубы"},
+          expect_error=True)
+    check("rename_set with '/' -> error", "/sets/rename", {"name": "MCP/B1 set", "new_name": "a/b"}, expect_error=True)
+    check("select_from_set by path", "/selection/from-set", {"name": "MCP/Трубы/A1 renamed"},
+          lambda r: r["selected"] == 1 or f"FAIL {r}")
+
+    check("move_set B1 set into MCP/Трубы", "/sets/move", {"name": "MCP/B1 set", "folder": "MCP/Трубы"},
+          lambda r: r["path"] == "MCP/Трубы/B1 set" or f"FAIL {r}")
+    check("move_set B1 set to position 0", "/sets/move", {"name": "MCP/Трубы/B1 set", "position": 0},
+          lambda r: r["position"] == 0 or f"FAIL {r}")
+    check("B1 set is first in MCP/Трубы", "/sets/info", {"name": "MCP/Трубы"},
+          lambda r: (r["children"][0]["name"] == "B1 set" and ", ".join(c["name"] for c in r["children"])) or f"FAIL {r}")
+    check("move_set folder into its own sub-folder -> error", "/sets/move", {"name": "MCP", "folder": "MCP/Трубы"},
+          expect_error=True)
+    check("move_set B1 set to the top level", "/sets/move", {"name": "B1 set", "folder": ""},
+          lambda r: r["path"] == "B1 set" or f"FAIL {r}")
+    check("move_set folder Трубы into new folder Архив", "/sets/move", {"name": "MCP/Трубы", "folder": "MCP/Архив"},
+          lambda r: r["path"] == "MCP/Архив/Трубы" or f"FAIL {r}")
+    check("set inside a moved folder is found by its new path", "/sets/info", {"name": "MCP/Архив/Трубы/A1 renamed"},
+          lambda r: r["count"] == 1 or f"FAIL {r}")
+
+    check("create_search_set by path MCP/Поиск/Coverings", "/sets/search/create",
+          {"name": "MCP/Поиск/Coverings", "conditions": [cov], "prune_below_match": False},
+          lambda r: (r["matches"] == n_cov and r["saved"]["path"] == "MCP/Поиск/Coverings") or f"FAIL {r}")
+    check("get_set_info search set: readable conditions", "/sets/info", {"name": "Coverings"},
+          lambda r: (r["type"] == "search" and r["count"] == n_cov and r["searchScope"] == "all"
+                     and "Item/Type = 'IfcCovering'" in r["conditions"][0] and r["conditions"][0]) or f"FAIL {r}")
+    check("update_search_set -> IfcCovering OR IfcMappedItem", "/sets/search/update",
+          {"name": "MCP/Поиск/Coverings", "any_of": [[cov], [mapped]], "prune_below_match": False},
+          lambda r: (r["matches"] == n_cov + n_map and len(r["before"]) == 1) or f"FAIL {r}")
+    check("get_set_info shows the OR group", "/sets/info", {"name": "Coverings"},
+          lambda r: (len(r["conditions"]) == 2 and r["conditions"][1].startswith("OR ") and r["count"] == n_cov + n_map
+                     and " | ".join(r["conditions"])) or f"FAIL {r}")
+    check("update_search_set on a selection set -> error", "/sets/search/update",
+          {"name": "B1 set", "conditions": [cov]}, expect_error=True)
+    check("update_selection_set on a search set -> error", "/sets/selection/update", {"name": "Coverings"},
+          expect_error=True)
+    check("find_items save_as_search_set into a folder", "/elements/find",
+          {"conditions": [mapped], "save_as_search_set": "Mapped", "folder": "MCP/Поиск", "prune_below_match": False},
+          lambda r: (r["searchSet"]["path"] == "MCP/Поиск/Mapped" and r["count"] == n_map) or f"FAIL {r}")
+    check("hide_elements by set path", "/elements/hide", {"set_name": "MCP/Поиск/Mapped"},
+          lambda r: r["hidden"] == n_map or f"FAIL {r}")
+    check("unhide_all", "/elements/unhide-all")
+
+    check("delete_set non-empty folder -> error", "/sets/delete", {"name": "MCP"}, expect_error=True)
+    check("save_document Master_sets.nwf", "/model/save", {"path": j("Master_sets.nwf")})
+    check("open_document Master_sets.nwf", "/model/open", {"path": j("Master_sets.nwf"), "discard_changes": True})
+    check("folders and sets survive save + reopen", "/sets/list", None,
+          lambda r: (lambda d: (all(k in d for k in ("MCP/Архив/Трубы/A1 renamed", "MCP/Поиск/Coverings",
+                                                     "MCP/Поиск/Mapped", "B1 set"))
+                                and d["MCP/Поиск/Coverings"]["type"] == "search" and f"{len(d)} entries")
+                     or f"FAIL {list(d)}")({s["name"]: s for s in r["sets"]}))
+    check("OR search set still finds both types", "/sets/search/run", {"name": "MCP/Поиск/Coverings"},
+          lambda r: r["matches"] == n_cov + n_map or f"FAIL {r}")
+    check("delete_set one set by path", "/sets/delete", {"name": "MCP/Поиск/Mapped"},
+          lambda r: (r["deleted"] and r["type"] == "search") or f"FAIL {r}")
+    check("delete_set folder MCP recursive", "/sets/delete", {"name": "MCP", "recursive": True},
+          lambda r: (r["deleted"] and r["type"] == "folder") or f"FAIL {r}")
+    check("nothing of MCP left", "/sets/list", None,
+          lambda r: (not any(s["name"].startswith("MCP/") or s["name"] == "MCP" for s in r["sets"])
+                     and ", ".join(s["name"] for s in r["sets"])) or f"FAIL {r}")
+    check("delete_set empty folder without recursive", "/sets/folder/create", {"path": "Empty"})
+    check("delete_set Empty", "/sets/delete", {"name": "Empty"}, lambda r: r["deleted"] or f"FAIL {r}")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -533,6 +655,8 @@ def main():
         property_checks(j, names)
     if version >= (2, 4) and str(health.get("version")) not in ("2.4.0", "2.4.1", "2.4.2"):
         search_checks(j, names)
+    if health.get("routes", 0) >= 72:
+        set_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)

@@ -333,7 +333,7 @@
     },
     {
       "name": "list_sets",
-      "description": "List all selection sets and search sets.",
+      "description": "List every selection set, search set and folder (Navisworks Sets window) with its path ('Folder/Sub/Set'), type (selection / search / folder), folder and, for selection sets and folders, the number of items.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -342,12 +342,22 @@
     },
     {
       "name": "create_selection_set",
-      "description": "Create a selection set from the current viewport selection.",
+      "description": "Save the current selection as a selection set. The name may be a path ('ОВ/Трубы/DN100'): missing folders are created. Refuses to overwrite a set of the same name in that folder unless replace=true.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Set name, or a path with folders."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Folder to put the set into (created if missing)."
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Overwrite a set with the same name in that folder."
           }
         },
         "required": [
@@ -538,6 +548,10 @@
             "type": "boolean",
             "default": false,
             "description": "Overwrite an existing set with this name."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Folder for the saved search set (created if missing); the set name may also be a path."
           }
         },
         "required": [
@@ -562,12 +576,300 @@
     },
     {
       "name": "delete_set",
-      "description": "Delete a selection set or search set by name.",
+      "description": "Delete a set or a folder. A folder that is not empty is deleted only with recursive=true (with everything in it).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "recursive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow deleting a non-empty folder with its contents."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_set_folder",
+      "description": "Create a folder in the Sets window; a path ('ОВ/Трубы') creates the missing parent folders too.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Folder path, e.g. 'ОВ/Трубы'."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "rename_set",
+      "description": "Rename a selection set, search set or folder (it stays where it is).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New name (no '/')."
+          }
+        },
+        "required": [
+          "name",
+          "new_name"
+        ]
+      }
+    },
+    {
+      "name": "move_set",
+      "description": "Move a set or folder into another folder (created if missing; '' = top level) and/or to a position in it (0 = first). Without folder it is only reordered.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Target folder path; '' for the top level. Omit to stay in the same folder."
+          },
+          "position": {
+            "type": "integer",
+            "description": "Index in the target folder (0 = first). Default: last."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_selection_set",
+      "description": "Change a selection set from the current selection, like Update in the Sets window: mode replace (the set becomes the selection), add (selection added) or remove (selection taken out). The set keeps its name and place.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "add",
+              "remove"
+            ],
+            "default": "replace"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_search_set",
+      "description": "Give a search set new conditions (same form as find_items / create_search_set: conditions, any_of, operators, scope). The set keeps its name and place; returns the old and new conditions and the new number of matches.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                },
+                "property": {
+                  "type": "string",
+                  "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "equals",
+                    "not_equals",
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "contains",
+                    "wildcard",
+                    "starts_with",
+                    "ends_with",
+                    "has_property",
+                    "not_has_property",
+                    "has_category",
+                    "not_has_category"
+                  ],
+                  "default": "equals"
+                },
+                "value": {
+                  "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                },
+                "negate": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Invert this condition."
+                }
+              },
+              "required": [
+                "category"
+              ]
+            },
+            "description": "Conditions that must ALL hold (AND)."
+          },
+          "any_of": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                  },
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "equals",
+                      "not_equals",
+                      ">",
+                      ">=",
+                      "<",
+                      "<=",
+                      "contains",
+                      "wildcard",
+                      "starts_with",
+                      "ends_with",
+                      "has_property",
+                      "not_has_property",
+                      "has_category",
+                      "not_has_category"
+                    ],
+                    "default": "equals"
+                  },
+                  "value": {
+                    "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                  },
+                  "negate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Invert this condition."
+                  }
+                },
+                "required": [
+                  "category"
+                ]
+              }
+            },
+            "description": "OR-groups: an item matches if all conditions of ANY group hold (plus all of 'conditions'). E.g. [[Type=IfcWall],[Type=IfcSlab]]."
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "default": true,
+            "description": "Compare text ignoring upper/lower case."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all",
+            "description": "Search the whole document or only inside the current selection."
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Search only inside this saved selection/search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Search only inside these sub-model files."
+          },
+          "prune_below_match": {
+            "type": "boolean",
+            "default": true,
+            "description": "Do not look inside an item that already matched (Navisworks default)."
+          },
+          "category": {
+            "type": "string",
+            "description": "Old single-condition form: category (default Item)."
+          },
+          "property": {
+            "type": "string",
+            "description": "Old single-condition form: property (default Name)."
+          },
+          "operator": {
+            "type": "string",
+            "description": "Old single-condition form: operator (default contains)."
+          },
+          "value": {
+            "description": "Old single-condition form: value."
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100000,
+            "description": "Stop after this many matches (truncated=true)."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 60,
+            "description": "Stop after this many seconds (truncated=true)."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_set_info",
+      "description": "Details of one set or folder: type, folder, for a search set its conditions in readable form and scope, the number of items, items per file and the first items; for a folder its contents.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Set or folder: its path ('ОВ/Трубы/DN100') or just its name (first match anywhere)."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "How many items to list."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 30,
+            "description": "Stop running a search set after this many seconds."
           }
         },
         "required": [
@@ -753,6 +1055,10 @@
             "type": "boolean",
             "default": false,
             "description": "Overwrite an existing set with the save_as_search_set name."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Folder for the saved search set (created if missing); the set name may also be a path."
           }
         },
         "required": []
@@ -1847,6 +2153,24 @@
     },
     "delete_set": {
       "route": "/sets/delete"
+    },
+    "create_set_folder": {
+      "route": "/sets/folder/create"
+    },
+    "rename_set": {
+      "route": "/sets/rename"
+    },
+    "move_set": {
+      "route": "/sets/move"
+    },
+    "update_selection_set": {
+      "route": "/sets/selection/update"
+    },
+    "update_search_set": {
+      "route": "/sets/search/update"
+    },
+    "get_set_info": {
+      "route": "/sets/info"
     },
     "find_items": {
       "route": "/elements/find",

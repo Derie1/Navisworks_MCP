@@ -116,21 +116,21 @@ namespace NavisworksMcpAddin
             };
         }
 
+        // name may be a path ("ОВ/Трубы/DN100"); "folder" puts it into a folder too.
         private static object SaveSearchSet(Document doc, string name, Search search, Dictionary<string, object> body)
         {
-            bool replace = GetBool(body, "replace", false);
-            SavedItem existing = FindSetByName(doc.SelectionSets.RootItem, name);
-            var set = new SelectionSet(new Search(search)) { DisplayName = name };
-            if (existing != null)
-            {
-                if (!replace)
-                    throw new InvalidOperationException($"a set named '{name}' already exists (pass replace=true to overwrite it)");
-                GroupItem parent = existing.Parent ?? doc.SelectionSets.RootItem;
-                doc.SelectionSets.ReplaceWithCopy(parent, parent.Children.IndexOf(existing), set);
-                return new { name, replaced = true };
-            }
-            doc.SelectionSets.AddCopy(set);
-            return new { name, replaced = false };
+            SplitSetName(name, GetString(body, "folder", null), out string folder, out string leaf);
+            var set = new SelectionSet(new Search(search)) { DisplayName = leaf };
+            return PlaceNewSet(doc, set, folder, GetBool(body, "replace", false));
+        }
+
+        private static void SplitSetName(string name, string folderParam, out string folder, out string leaf)
+        {
+            string[] parts = SplitSetPath(name);
+            if (parts.Length == 0) throw new ArgumentException("name is required");
+            leaf = parts[parts.Length - 1];
+            var f = SplitSetPath(folderParam).Concat(parts.Take(parts.Length - 1));
+            folder = string.Join("/", f);
         }
 
         // Bounded run: FindIncremental lets us stop at max_results / time.

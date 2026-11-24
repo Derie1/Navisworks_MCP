@@ -91,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.3";
-        private const int Routes = 66;
+        private const string Version = "2.4.4";
+        private const int Routes = 72;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -326,6 +326,12 @@ namespace NavisworksMcpAddin
                     case "/sets/selection/create": return Handlers.SelectionSetCreate(body);
                     case "/sets/search/create": return Handlers.SearchSetCreate(body);
                     case "/sets/delete": return Handlers.SetDelete(body);
+                    case "/sets/folder/create": return Handlers.SetFolderCreate(body);
+                    case "/sets/rename": return Handlers.SetRename(body);
+                    case "/sets/move": return Handlers.SetMove(body);
+                    case "/sets/selection/update": return Handlers.SelectionSetUpdate(body);
+                    case "/sets/search/update": return Handlers.SearchSetUpdate(body);
+                    case "/sets/info": return Handlers.SetInfo(body);
                     case "/sets/items": return Handlers.SetItems(body);
                     case "/sets/search/run": return Handlers.SearchSetRun(body);
 
@@ -754,82 +760,8 @@ namespace NavisworksMcpAddin
         //  SETS
         // ════════════════════════════════════════════════════════════════════
 
-        public static object SetsList()
-        {
-            var doc = RequireDocument();
-
-            var list = new List<object>();
-            void Walk(GroupItem group, string prefix)
-            {
-                foreach (SavedItem si in group.Children)
-                {
-                    if (si is SelectionSet set)
-                    {
-                        // Modern Navisworks unifies selection and search sets under
-                        // SelectionSet. Search==null means explicit; non-null means
-                        // search-based (the search will be re-evaluated when used).
-                        if (!set.HasSearch)
-                        {
-                            list.Add(new
-                            {
-                                name = prefix + set.DisplayName,
-                                type = "selection",
-                                count = set.ExplicitModelItems.Count
-                            });
-                        }
-                        else
-                        {
-                            list.Add(new
-                            {
-                                name = prefix + set.DisplayName,
-                                type = "search"
-                            });
-                        }
-                    }
-                    else if (si is GroupItem g)
-                    {
-                        Walk(g, prefix + g.DisplayName + "/");
-                    }
-                }
-            }
-            Walk(doc.SelectionSets.RootItem, "");
-
-            return new { count = list.Count, sets = list };
-        }
-
-        public static object SelectionSetCreate(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-
-            var current = doc.CurrentSelection.SelectedItems;
-            if (current.Count == 0)
-            {
-                throw new InvalidOperationException("nothing is currently selected");
-            }
-
-            // Construct an explicit selection set and copy items in.
-            var set = new SelectionSet { DisplayName = name };
-            set.ExplicitModelItems.CopyFrom(current);
-            doc.SelectionSets.AddCopy(set);
-
-            return new { name, count = current.Count };
-        }
-
-        public static object SetDelete(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-
-            SavedItem found = FindSetByName(doc.SelectionSets.RootItem, name)
-                ?? throw new InvalidOperationException($"set '{name}' not found");
-
-            doc.SelectionSets.Remove(found);
-
-            return new { name, deleted = true };
-        }
+        // list_sets, create_selection_set, delete_set and the other set tools:
+        // SetHandlers.cs.
 
         public static object SetItems(Dictionary<string, object> body)
         {
@@ -1407,9 +1339,21 @@ namespace NavisworksMcpAddin
             throw new InvalidOperationException($"'{name}' is not a selection or search set");
         }
 
+        // A set or folder by its path ("ОВ/Трубы/DN100") or, anywhere in the
+        // tree, by its name alone (first match).
         private static SavedItem FindSetByName(GroupItem root, string name)
         {
-            if (root == null) return null;
+            if (root == null || string.IsNullOrWhiteSpace(name)) return null;
+            if (name.Contains("/"))
+            {
+                SavedItem byPath = FindSavedItemByPath(root, name);
+                if (byPath != null) return byPath;
+            }
+            return FindSavedItemByDisplayName(root, name.Trim());
+        }
+
+        private static SavedItem FindSavedItemByDisplayName(GroupItem root, string name)
+        {
             foreach (SavedItem si in root.Children)
             {
                 if (string.Equals(si.DisplayName, name, StringComparison.OrdinalIgnoreCase))
@@ -1418,7 +1362,7 @@ namespace NavisworksMcpAddin
                 }
                 if (si is GroupItem g)
                 {
-                    SavedItem hit = FindSetByName(g, name);
+                    SavedItem hit = FindSavedItemByDisplayName(g, name);
                     if (hit != null) return hit;
                 }
             }
