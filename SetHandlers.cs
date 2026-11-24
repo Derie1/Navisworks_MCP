@@ -64,10 +64,35 @@ namespace NavisworksMcpAddin
             public string Folder => Path.Contains("/") ? Path.Substring(0, Path.LastIndexOf('/')) : "";
         }
 
-        private static SetLoc LocateSet(Document doc, string name)
+        // A tree of saved items (Sets or Saved Viewpoints): how to read its
+        // root, add to it and tell a folder from an item.
+        private sealed class SavedTree
+        {
+            public Func<GroupItem> Root;
+            public Action<GroupItem, SavedItem> Add;
+            public Func<SavedItem, bool> IsFolder;
+            public string What;      // "set", "viewpoint"
+            public string ListTool;  // "list_sets", "list_viewpoints"
+        }
+
+        private static SavedTree SetsTree(Document doc) => new SavedTree
+        {
+            Root = () => doc.SelectionSets.RootItem,
+            Add = (g, i) => doc.SelectionSets.AddCopy(g, i),
+            IsFolder = IsFolder,
+            What = "set",
+            ListTool = "list_sets"
+        };
+
+        private static SetLoc LocateSet(Document doc, string name) => LocateSaved(SetsTree(doc), name);
+
+        private static GroupItem GetSetFolder(Document doc, string path, bool create, out string realPath)
+            => GetSavedFolder(SetsTree(doc), path, create, out realPath);
+
+        private static SetLoc LocateSaved(SavedTree tree, string name)
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("name is required");
-            GroupItem root = doc.SelectionSets.RootItem;
+            GroupItem root = tree.Root();
             string[] parts = SplitSetPath(name);
 
             if (parts.Length > 1)
@@ -81,7 +106,7 @@ namespace NavisworksMcpAddin
                     {
                         SavedItem c = cur.Children[k];
                         if (string.Equals(c.DisplayName, parts[p], StringComparison.OrdinalIgnoreCase)
-                            && (p == parts.Length - 1 || IsFolder(c))) { idx = k; break; }
+                            && (p == parts.Length - 1 || tree.IsFolder(c))) { idx = k; break; }
                     }
                     if (idx < 0) break;
                     SavedItem hit = cur.Children[idx];
@@ -100,7 +125,7 @@ namespace NavisworksMcpAddin
                     SavedItem c = grp.Children[k];
                     if (string.Equals(c.DisplayName, wanted, StringComparison.OrdinalIgnoreCase))
                         return new SetLoc { Item = c, Parent = grp, Index = k, Path = prefix + c.DisplayName };
-                    if (IsFolder(c))
+                    if (tree.IsFolder(c))
                     {
                         SetLoc r = Dfs((GroupItem)c, prefix + c.DisplayName + "/");
                         if (r != null) return r;
@@ -108,27 +133,28 @@ namespace NavisworksMcpAddin
                 }
                 return null;
             }
-            return Dfs(root, "") ?? throw new InvalidOperationException($"set or folder '{name}' not found (see list_sets)");
+            return Dfs(root, "")
+                ?? throw new InvalidOperationException($"{tree.What} or folder '{name}' not found (see {tree.ListTool})");
         }
 
         // The folder at path, created (with its parents) if asked. "" = root.
-        private static GroupItem GetSetFolder(Document doc, string path, bool create, out string realPath)
+        private static GroupItem GetSavedFolder(SavedTree tree, string path, bool create, out string realPath)
         {
-            GroupItem cur = doc.SelectionSets.RootItem;
+            GroupItem cur = tree.Root();
             var names = new List<string>();
             foreach (string part in SplitSetPath(path))
             {
                 SavedItem next = cur.Children.FirstOrDefault(c =>
-                    IsFolder(c) && string.Equals(c.DisplayName, part, StringComparison.OrdinalIgnoreCase));
+                    tree.IsFolder(c) && string.Equals(c.DisplayName, part, StringComparison.OrdinalIgnoreCase));
                 if (next == null)
                 {
                     if (!create) throw new InvalidOperationException($"folder '{path}' not found");
                     if (cur.Children.Any(c => string.Equals(c.DisplayName, part, StringComparison.OrdinalIgnoreCase)))
-                        throw new InvalidOperationException($"'{part}' in '{path}' is a set, not a folder");
-                    doc.SelectionSets.AddCopy(cur, new FolderItem { DisplayName = part });
+                        throw new InvalidOperationException($"'{part}' in '{path}' is a {tree.What}, not a folder");
+                    tree.Add(cur, new FolderItem { DisplayName = part });
                     // Objects read before the change are stale: walk again from the
                     // fresh root (one level more exists now).
-                    return GetSetFolder(doc, path, create, out realPath);
+                    return GetSavedFolder(tree, path, create, out realPath);
                 }
                 names.Add(next.DisplayName);
                 cur = (GroupItem)next;

@@ -91,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.4";
-        private const int Routes = 72;
+        private const string Version = "2.4.5";
+        private const int Routes = 78;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -378,6 +378,12 @@ namespace NavisworksMcpAddin
                     case "/viewpoints/goto": return Handlers.ViewpointGoto(body);
                     case "/viewpoints/delete": return Handlers.ViewpointDelete(body);
                     case "/viewpoints/current": return Handlers.ViewpointCurrent();
+                    case "/viewpoints/update": return Handlers.ViewpointUpdate(body);
+                    case "/viewpoints/get": return Handlers.ViewpointGet(body);
+                    case "/viewpoints/camera": return Handlers.ViewpointCamera(body);
+                    case "/viewpoints/folder/create": return Handlers.ViewpointFolderCreate(body);
+                    case "/viewpoints/rename": return Handlers.ViewpointRename(body);
+                    case "/viewpoints/move": return Handlers.ViewpointMove(body);
 
                     default:
                         throw new InvalidOperationException($"unknown route: {path}");
@@ -1210,85 +1216,7 @@ namespace NavisworksMcpAddin
         //  VIEWPOINTS
         // ════════════════════════════════════════════════════════════════════
 
-        public static object ViewpointsList()
-        {
-            var doc = RequireDocument();
-
-            var list = new List<object>();
-            void Walk(GroupItem group, string prefix)
-            {
-                foreach (SavedItem si in group.Children)
-                {
-                    if (si is SavedViewpoint sv)
-                    {
-                        list.Add(new { name = prefix + sv.DisplayName, type = "viewpoint" });
-                    }
-                    else if (si is GroupItem g)
-                    {
-                        Walk(g, prefix + g.DisplayName + "/");
-                    }
-                }
-            }
-            Walk(doc.SavedViewpoints.RootItem, "");
-
-            return new { count = list.Count, viewpoints = list };
-        }
-
-        public static object ViewpointSave(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-
-            var sv = new SavedViewpoint(doc.CurrentViewpoint.CreateCopy())
-            {
-                DisplayName = name
-            };
-            doc.SavedViewpoints.AddCopy(sv);
-
-            return new { name };
-        }
-
-        public static object ViewpointGoto(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-
-            SavedViewpoint sv = FindSavedViewpoint(doc.SavedViewpoints.RootItem, name)
-                ?? throw new InvalidOperationException($"saved viewpoint '{name}' not found");
-
-            doc.CurrentViewpoint.CopyFrom(sv.Viewpoint);
-
-            return new { name = sv.DisplayName };
-        }
-
-        public static object ViewpointDelete(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-
-            SavedViewpoint sv = FindSavedViewpoint(doc.SavedViewpoints.RootItem, name)
-                ?? throw new InvalidOperationException($"saved viewpoint '{name}' not found");
-
-            doc.SavedViewpoints.Remove(sv);
-            return new { name, deleted = true };
-        }
-
-        public static object ViewpointCurrent()
-        {
-            var doc = RequireDocument();
-            Viewpoint vp = doc.CurrentViewpoint.CreateCopy();
-
-            return new
-            {
-                position = new { x = vp.Position.X, y = vp.Position.Y, z = vp.Position.Z },
-                projection = vp.Projection.ToString(),
-                focalDistance = vp.FocalDistance,
-                hasLighting = vp.HasLighting
-            };
-        }
+        // Viewpoints: ViewpointHandlers.cs.
 
         // ════════════════════════════════════════════════════════════════════
         //  Internal helpers
@@ -1363,25 +1291,6 @@ namespace NavisworksMcpAddin
                 if (si is GroupItem g)
                 {
                     SavedItem hit = FindSavedItemByDisplayName(g, name);
-                    if (hit != null) return hit;
-                }
-            }
-            return null;
-        }
-
-        private static SavedViewpoint FindSavedViewpoint(GroupItem root, string name)
-        {
-            if (root == null) return null;
-            foreach (SavedItem item in root.Children)
-            {
-                if (item is SavedViewpoint sv &&
-                    string.Equals(sv.DisplayName, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return sv;
-                }
-                if (item is GroupItem g)
-                {
-                    SavedViewpoint hit = FindSavedViewpoint(g, name);
                     if (hit != null) return hit;
                 }
             }

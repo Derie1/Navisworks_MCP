@@ -1372,7 +1372,7 @@
     },
     {
       "name": "list_viewpoints",
-      "description": "List all saved viewpoints.",
+      "description": "List saved viewpoints and folders (Saved Viewpoints window) with path, type (viewpoint / folder / animation), folder and whether a viewpoint stores hidden items and colour overrides; 'current' is the viewpoint selected in the window.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -1381,12 +1381,27 @@
     },
     {
       "name": "save_viewpoint",
-      "description": "Save the current camera position as a named viewpoint.",
+      "description": "Save the current view (camera, section) as a viewpoint. The name may be a path: missing folders are created. with_overrides=true also stores hidden items and colour / transparency overrides, so goto_viewpoint brings them back. Refuses to overwrite unless replace=true (or use update_viewpoint).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Viewpoint name, or a path with folders."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Folder to save into (created if missing)."
+          },
+          "with_overrides": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also store hidden items and colour / transparency overrides."
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Overwrite a viewpoint with the same name in that folder."
           }
         },
         "required": [
@@ -1396,12 +1411,18 @@
     },
     {
       "name": "goto_viewpoint",
-      "description": "Navigate to a saved viewpoint by name.",
+      "description": "Go to a saved viewpoint as if it was clicked in the Saved Viewpoints window: camera and section and, if the viewpoint stores them, hidden items and colour overrides (these replace the current ones).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere)."
+          },
+          "apply_overrides": {
+            "type": "boolean",
+            "default": true,
+            "description": "Apply stored hidden items and colours (false = camera only)."
           }
         },
         "required": [
@@ -1411,12 +1432,18 @@
     },
     {
       "name": "delete_viewpoint",
-      "description": "Delete a saved viewpoint by name.",
+      "description": "Delete a viewpoint or a folder. A folder that is not empty is deleted only with recursive=true.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere)."
+          },
+          "recursive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow deleting a non-empty folder with its contents."
           }
         },
         "required": [
@@ -1426,11 +1453,204 @@
     },
     {
       "name": "get_current_viewpoint",
-      "description": "Return the current camera position and projection.",
+      "description": "Camera of the current view: position, direction, up, target, projection, field of view (degrees) or orthographic height, focal distance, speeds, lighting, render style, section box.",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "required": []
+      }
+    },
+    {
+      "name": "get_viewpoint",
+      "description": "Full camera of a saved viewpoint (or of the current view without name): position, direction, up, target, projection, field of view or orthographic height, focal distance, speeds, lighting, render style, section; for a saved one also how many hidden items and colour overrides it stores.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere). Omit for the current view."
+          },
+          "include_camera_json": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also return the AutodeskCommonCamera JSON (can be passed back as camera_json)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_camera",
+      "description": "Change camera settings of the current view, or of a saved viewpoint (name) without touching its hidden items and colours. Only what is passed changes. Positions in document units, angles in degrees; with target or direction the picture is kept upright (world up, else +Z) unless up is given.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Saved viewpoint to change. Omit to change the current view."
+          },
+          "position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Camera position [x, y, z]."
+          },
+          "target": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Point to look at [x, y, z] (sets focal distance too)."
+          },
+          "direction": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "View direction [x, y, z] (instead of target)."
+          },
+          "up": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Up direction of the picture."
+          },
+          "projection": {
+            "type": "string",
+            "enum": [
+              "perspective",
+              "orthographic"
+            ]
+          },
+          "fov_deg": {
+            "type": "number",
+            "description": "Vertical field of view, perspective camera."
+          },
+          "ortho_height": {
+            "type": "number",
+            "description": "Visible height, orthographic camera."
+          },
+          "focal_distance": {
+            "type": "number"
+          },
+          "linear_speed": {
+            "type": "number",
+            "description": "Walk / fly speed, document units per second."
+          },
+          "angular_speed": {
+            "type": "number",
+            "description": "Turn speed, degrees per second."
+          },
+          "lighting": {
+            "type": "string",
+            "enum": [
+              "None",
+              "Headlight",
+              "SceneLights",
+              "FullLights"
+            ]
+          },
+          "render_style": {
+            "type": "string",
+            "enum": [
+              "FullRender",
+              "Shaded",
+              "Wireframe",
+              "HiddenLine"
+            ]
+          },
+          "camera_json": {
+            "type": "string",
+            "description": "AutodeskCommonCamera JSON from get_viewpoint(include_camera_json)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "update_viewpoint",
+      "description": "Update a saved viewpoint from the current view (Update in the Saved Viewpoints window): camera, section, redlines and visibility; it keeps its name and place.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere)."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_viewpoint_folder",
+      "description": "Create a folder in the Saved Viewpoints window; a path ('Коллизии/Этаж 1') creates missing parents too.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "rename_viewpoint",
+      "description": "Rename a saved viewpoint or folder (it stays where it is).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere)."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New name (no '/')."
+          }
+        },
+        "required": [
+          "name",
+          "new_name"
+        ]
+      }
+    },
+    {
+      "name": "move_viewpoint",
+      "description": "Move a viewpoint or folder into another folder (created if missing; '' = top level) and/or to a position in it (0 = first).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Viewpoint or folder: its path ('Коллизии/Этаж 1/Узел 3') or just its name (first match anywhere)."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Target folder path; '' for the top level. Omit to stay in the same folder."
+          },
+          "position": {
+            "type": "integer",
+            "description": "Index in the target folder (0 = first). Default: last."
+          }
+        },
+        "required": [
+          "name"
+        ]
       }
     },
     {
@@ -2246,6 +2466,24 @@
     },
     "get_current_viewpoint": {
       "route": "/viewpoints/current"
+    },
+    "get_viewpoint": {
+      "route": "/viewpoints/get"
+    },
+    "set_camera": {
+      "route": "/viewpoints/camera"
+    },
+    "update_viewpoint": {
+      "route": "/viewpoints/update"
+    },
+    "create_viewpoint_folder": {
+      "route": "/viewpoints/folder/create"
+    },
+    "rename_viewpoint": {
+      "route": "/viewpoints/rename"
+    },
+    "move_viewpoint": {
+      "route": "/viewpoints/move"
     },
     "list_model_files": {
       "route": "/model/files"

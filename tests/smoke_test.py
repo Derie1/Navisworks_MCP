@@ -491,6 +491,148 @@ def set_checks(j, names):
     check("delete_set Empty", "/sets/delete", {"name": "Empty"}, lambda r: r["deleted"] or f"FAIL {r}")
 
 
+def viewpoint_checks(j, names):
+    """Saved Viewpoints (2.4.5+): folders, camera, update, overrides, section; on Master.nwf."""
+    check("open_document Master.nwf (viewpoints)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    a1, b1 = names[0], names[2]
+
+    def cam(r):
+        return r.get("camera") or {}
+
+    def near(a, b, tol=1e-3):
+        return a is not None and b is not None and close(a, b, tol)
+
+    call("/files/select", {"names": [b1]})
+    call("/view/zoom", {"padding": 0})
+    cur = call("/viewpoints/current")
+    p0 = cam(cur).get("position")
+    check("get_current_viewpoint: full camera", "/viewpoints/current", None,
+          lambda r: (all(k in cam(r) for k in ("position", "direction", "up", "projection", "fovDeg"))
+                     and f"{cam(r)['projection']} fov {cam(r)['fovDeg']} dir {cam(r)['direction']}") or f"FAIL {r}")
+    check("save_viewpoint MCP/Обзор/All (new folders)", "/viewpoints/save", {"name": "MCP/Обзор/All"},
+          lambda r: (r["path"] == "MCP/Обзор/All" and not r["hiddenItems"]) or f"FAIL {r}")
+    check("save_viewpoint same name -> error", "/viewpoints/save", {"name": "MCP/Обзор/All"}, expect_error=True)
+    check("save_viewpoint replace=true", "/viewpoints/save", {"name": "All", "folder": "MCP/Обзор", "replace": True},
+          lambda r: r["replaced"] or f"FAIL {r}")
+    check("list_viewpoints: folders and viewpoint", "/viewpoints/list", None,
+          lambda r: (lambda d: (d.get("MCP", {}).get("type") == "folder" and d.get("MCP/Обзор/All", {}).get("type") == "viewpoint"
+                                and d["MCP/Обзор/All"]["folder"] == "MCP/Обзор" and ", ".join(d))
+                     or f"FAIL {list(d)}")({v["name"]: v for v in r["viewpoints"]}))
+    check("get_viewpoint All = the view it was saved from", "/viewpoints/get", {"name": "All"},
+          lambda r: (near(cam(r)["position"], p0) and r["path"] == "MCP/Обзор/All") or f"FAIL {r}")
+
+    # Camera of the current view
+    p1 = [p0[0] + 50, p0[1] - 50, p0[2] + 20]
+    check("set_camera position + direction +X", "/viewpoints/camera", {"position": p1, "direction": [1, 0, 0]},
+          lambda r: (near(r["after"]["position"], p1) and near(r["after"]["direction"], [1, 0, 0])
+                     and abs(r["after"]["up"][2]) > 0.99 and f"up {r['after']['up']}") or f"FAIL {r['after']}")
+    tgt = [p1[0], p1[1] + 10, p1[2]]
+    check("set_camera target -> direction +Y, focal 10", "/viewpoints/camera", {"target": tgt},
+          lambda r: (near(r["after"]["direction"], [0, 1, 0]) and abs(r["after"]["focalDistance"] - 10) < 1e-6
+                     and near(r["after"]["target"], tgt)) or f"FAIL {r['after']}")
+    check("set_camera orthographic, height 50", "/viewpoints/camera", {"projection": "orthographic", "ortho_height": 50},
+          lambda r: (r["after"]["projection"] == "orthographic" and abs(r["after"]["orthoHeight"] - 50) < 1e-6) or f"FAIL {r['after']}")
+    check("set_camera fov on orthographic -> error", "/viewpoints/camera", {"fov_deg": 60}, expect_error=True)
+    check("set_camera perspective, fov 60", "/viewpoints/camera", {"projection": "perspective", "fov_deg": 60},
+          lambda r: (r["after"]["projection"] == "perspective" and abs(r["after"]["fovDeg"] - 60) < 1e-3) or f"FAIL {r['after']}")
+    check("set_camera nothing -> error", "/viewpoints/camera", {}, expect_error=True)
+    check("set_camera target + direction -> error", "/viewpoints/camera", {"target": tgt, "direction": [1, 0, 0]},
+          expect_error=True)
+    check("set_camera bad render_style -> error", "/viewpoints/camera", {"render_style": "Cartoon"}, expect_error=True)
+
+    check("goto_viewpoint All -> camera back", "/viewpoints/goto", {"name": "MCP/Обзор/All"},
+          lambda r: near(cam(r)["position"], p0) or f"FAIL {r}")
+    check("current view is the viewpoint's", "/viewpoints/current", None,
+          lambda r: near(cam(r)["position"], p0) or f"FAIL {cam(r)['position']} != {p0}")
+
+    call("/viewpoints/camera", {"position": p1})
+    check("update_viewpoint All from the current view", "/viewpoints/update", {"name": "All"},
+          lambda r: (near(r["after"]["position"], p1) and near(r["before"]["position"], p0)) or f"FAIL {r}")
+    check("set_camera on saved All: direction -Y", "/viewpoints/camera", {"name": "All", "direction": [0, -1, 0]},
+          lambda r: (r["target"] == "MCP/Обзор/All" and near(r["after"]["direction"], [0, -1, 0])
+                     and near(r["after"]["position"], p1)) or f"FAIL {r}")
+    check("current view untouched by it", "/viewpoints/current", None,
+          lambda r: not near(cam(r)["direction"], [0, -1, 0]) or f"FAIL {cam(r)}")
+
+    # Hidden items and colours stored in a viewpoint
+    call("/files/select", {"names": [a1]})
+    call("/elements/hide")
+    call("/files/color", {"names": [b1], "r": 255, "g": 0, "b": 0})
+    check("save_viewpoint with_overrides", "/viewpoints/save", {"name": "MCP/Обзор/Hidden A1", "with_overrides": True},
+          lambda r: (r["hiddenItems"] and r["colorOverrides"]) or f"FAIL {r}")
+    check("get_viewpoint: stored hidden items and colours", "/viewpoints/get", {"name": "Hidden A1"},
+          lambda r: ((r["hiddenItems"] or 0) >= 1 and (r["colorOverrides"] or 0) >= 1 and "position" in cam(r)
+                     and f"hidden {r['hiddenItems']}, colours {r['colorOverrides']}, camera at {cam(r)['position']}")
+                    or f"FAIL {r}")
+    check("reset_overrides (unhide + colours off)", "/elements/reset-overrides")
+    check("goto_viewpoint Hidden A1 applies them", "/viewpoints/goto", {"name": "Hidden A1"},
+          lambda r: ((r["hiddenApplied"] or 0) >= 1 and (r["colorOverridesApplied"] or 0) >= 1
+                     and f"hidden {r['hiddenApplied']}, coloured {r['colorOverridesApplied']}") or f"FAIL {r}")
+    # Navisworks stores the hidden state on the file's top children, not on
+    # the file node itself: count hidden items inside a1 / b1.
+    def hidden_in(f):
+        r = call("/properties/values", {"category": "Item", "property": "Hidden", "files": [f]})
+        return {v["value"]: v["items"] for v in r.get("values", [])}.get("Yes", 0)
+    check("a1 hidden again, b1 not", "/viewpoints/current", None,
+          lambda r: (lambda ha, hb: (ha >= 1 and hb == 0 and f"hidden inside a1: {ha}, b1: {hb}")
+                     or f"FAIL a1 {ha}, b1 {hb}")(hidden_in(a1), hidden_in(b1)))
+    check("unhide_all", "/elements/unhide-all")
+    check("reset_overrides", "/elements/reset-overrides")
+
+    # Section box stored in a viewpoint
+    call("/files/select", {"names": [b1]})
+    check("set_section_box around b1", "/view/section-box", {"padding": 0.5})
+    check("save_viewpoint MCP/Сечение", "/viewpoints/save", {"name": "MCP/Сечение"},
+          lambda r: r["path"] == "MCP/Сечение" or f"FAIL {r}")
+    check("get_viewpoint shows the section", "/viewpoints/get", {"name": "MCP/Сечение"},
+          lambda r: (cam(r).get("section") is not None and str(cam(r)["section"])[:120]) or f"FAIL {cam(r)}")
+    check("clear_section", "/view/section-clear")
+    check("goto_viewpoint MCP/Сечение brings the section back", "/viewpoints/goto", {"name": "MCP/Сечение"})
+    check("section is on", "/view/section-get", None,
+          lambda r: '"Enabled":true' in (r.get("clipPlaneSet") or "").replace(" ", "") or f"FAIL {(r.get('clipPlaneSet') or '')[:160]}")
+    check("clear_section", "/view/section-clear")
+
+    # Folders, rename, move
+    check("create_viewpoint_folder MCP/Архив", "/viewpoints/folder/create", {"path": "MCP/Архив"},
+          lambda r: (r["created"] and r["path"] == "MCP/Архив") or f"FAIL {r}")
+    check("create_viewpoint_folder again -> created=false", "/viewpoints/folder/create", {"path": "mcp/архив"},
+          lambda r: (not r["created"] and r["path"] == "MCP/Архив") or f"FAIL {r}")
+    check("rename_viewpoint All -> Общий вид", "/viewpoints/rename", {"name": "MCP/Обзор/All", "new_name": "Общий вид"},
+          lambda r: r["path"] == "MCP/Обзор/Общий вид" or f"FAIL {r}")
+    check("rename_viewpoint onto a sibling -> error", "/viewpoints/rename", {"name": "Общий вид", "new_name": "Hidden A1"},
+          expect_error=True)
+    check("move_viewpoint Сечение into MCP/Архив", "/viewpoints/move", {"name": "MCP/Сечение", "folder": "MCP/Архив"},
+          lambda r: r["path"] == "MCP/Архив/Сечение" or f"FAIL {r}")
+    check("move_viewpoint Hidden A1 to position 0", "/viewpoints/move", {"name": "Hidden A1", "position": 0},
+          lambda r: r["position"] == 0 or f"FAIL {r}")
+    check("Hidden A1 is first in MCP/Обзор", "/viewpoints/list", None,
+          lambda r: (lambda names_: (names_[0] == "MCP/Обзор/Hidden A1" and ", ".join(names_)) or f"FAIL {names_}")(
+              [v["name"] for v in r["viewpoints"] if v["folder"] == "MCP/Обзор"]))
+    check("move_viewpoint folder into itself -> error", "/viewpoints/move", {"name": "MCP", "folder": "MCP/Архив"},
+          expect_error=True)
+    check("move_viewpoint folder Обзор into Архив", "/viewpoints/move", {"name": "MCP/Обзор", "folder": "MCP/Архив"},
+          lambda r: r["path"] == "MCP/Архив/Обзор" or f"FAIL {r}")
+    check("goto by the new path", "/viewpoints/goto", {"name": "MCP/Архив/Обзор/Общий вид", "apply_overrides": False},
+          lambda r: near(cam(r)["position"], p1) or f"FAIL {r}")
+    check("goto unknown -> error", "/viewpoints/goto", {"name": "MCP/nope"}, expect_error=True)
+    check("goto a folder -> error", "/viewpoints/goto", {"name": "MCP/Архив"}, expect_error=True)
+
+    check("save_document Master_vp.nwf", "/model/save", {"path": j("Master_vp.nwf")})
+    check("open_document Master_vp.nwf", "/model/open", {"path": j("Master_vp.nwf"), "discard_changes": True})
+    check("viewpoints and folders survive save + reopen", "/viewpoints/list", None,
+          lambda r: (lambda d: (all(k in d for k in ("MCP/Архив/Сечение", "MCP/Архив/Обзор/Общий вид", "MCP/Архив/Обзор/Hidden A1"))
+                                and d["MCP/Архив/Обзор/Hidden A1"]["hiddenItems"] and f"{len(d)} entries")
+                     or f"FAIL {list(d)}")({v["name"]: v for v in r["viewpoints"]}))
+    check("saved camera survives too", "/viewpoints/get", {"name": "Общий вид"},
+          lambda r: (near(cam(r)["position"], p1) and near(cam(r)["direction"], [0, -1, 0])) or f"FAIL {cam(r)}")
+    check("delete_viewpoint non-empty folder -> error", "/viewpoints/delete", {"name": "MCP"}, expect_error=True)
+    check("delete_viewpoint one viewpoint", "/viewpoints/delete", {"name": "MCP/Архив/Сечение"},
+          lambda r: (r["deleted"] and r["type"] == "viewpoint") or f"FAIL {r}")
+    check("delete_viewpoint folder MCP recursive", "/viewpoints/delete", {"name": "MCP", "recursive": True},
+          lambda r: (r["deleted"] and r["type"] == "folder") or f"FAIL {r}")
+    check("no viewpoints left", "/viewpoints/list", None, lambda r: r["count"] == 0 or f"FAIL {r}")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -657,6 +799,8 @@ def main():
         search_checks(j, names)
     if health.get("routes", 0) >= 72:
         set_checks(j, names)
+    if health.get("routes", 0) >= 78:
+        viewpoint_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
