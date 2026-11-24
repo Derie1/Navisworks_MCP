@@ -1,5 +1,5 @@
 // =============================================================================
-//  Navisworks MCP Bridge — full implementation (62 routes)
+//  Navisworks MCP Bridge — full implementation (84 routes)
 // =============================================================================
 //  >>> VERSION MARKER: FULL-V2 <<<
 //
@@ -19,18 +19,26 @@
 //                               section-get}               ViewHandlers.cs
 //  Selection        (6)  /selection/{get,select-all,deselect-all,invert,
 //                                   from-set,by-name}
-//  Sets             (6)  /sets/{list,selection/create,search/create,delete,
-//                              items,search/run}
-//  Find/Properties  (3)  /elements/{find,find-by-name,properties}
-//  Overrides        (6)  /elements/{color,transparency,hide,unhide-all,
-//                                   isolate,reset-overrides}
+//  Sets            (12)  /sets/{list,info,delete,rename,move,items,
+//                              folder/create,selection/{create,update},
+//                              search/{create,update,run}} SetHandlers.cs
+//  Find             (2)  /elements/{find,find-by-name}     SearchHandlers.cs
+//  Properties       (4)  /elements/properties, /properties/{names,values}
+//                                                          PropertyHandlers.cs
+//                        /properties/export                ExportHandlers.cs
+//  Overrides/hide   (8)  /elements/{color,transparency,reset-overrides},
+//                        /elements/{hide,hide-unselected,isolate,
+//                                   unhide-all,unhide-children}
+//                                                          VisibilityHandlers.cs
 //  Clash           (11)  /clash/{list,create,set-selections,run,results,
 //                                delete}, /clash/group/{create,list,delete,
 //                                add-clashes,set-status}   ClashGroupHandlers.cs
 //  Clash results    (7)  /clash/{summary,auto-group,report},
 //                        /clash/result/{status,assign,comment,zoom}
 //                                                          ClashResultHandlers.cs
-//  Viewpoints       (5)  /viewpoints/{list,save,goto,delete,current}
+//  Viewpoints      (11)  /viewpoints/{list,save,goto,update,delete,current,
+//                                     get,camera,rename,move,folder/create}
+//                                                          ViewpointHandlers.cs
 //
 //  Lifecycle
 //  ─────────
@@ -91,8 +99,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.8";
-        private const int Routes = 79;
+        private const string Version = "2.5.0";
+        private const int Routes = 84;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 

@@ -15,19 +15,23 @@ Claude Desktop, Claude Code, Codex или другому клиенту MCP — 
 Мост включается только кнопкой **AI companion → MCP Bridge** в Navisworks; связь идёт лишь внутри
 компьютера (localhost).
 
-**Новое в 2.4.0 — положение моделей** (диалог Units and Transform):
-- Ассистент читает единицы, смещение, поворот и масштаб каждой подгруженной модели и её габариты —
-  по ним видно IFC, пришедший со смещённой точкой вставки.
-- Может сдвинуть, повернуть, отмасштабировать модель или сменить её единицы, задав значения или
-  добавив их к текущему положению, и вернуть модель в исходное положение. Геопривязка IFC при этом
-  сохраняется.
-- Установщик работает и при открытых ИИ-клиентах: после установки клиент достаточно перезапустить.
+**Новое в 2.5.0 — свойства, поиск, наборы, видовые точки, видимость:**
+- Ассистент видит, какие свойства есть в модели и какие у них значения, и ищет по
+  нескольким условиям сразу — «трубы больше DN 100 на этажах E01 или E02», с числами,
+  длинами и углами в их единицах.
+- Наборы и видовые точки — как в окнах Sets и Saved Viewpoints: папки, переименование,
+  перенос, обновление, условия поискового набора в читаемом виде. Видовая точка
+  сохраняет и возвращает скрытые элементы, цвета и сечение; камеру можно задать точно.
+- Выгрузка свойств многих элементов в CSV для Excel.
+- Скрыть, скрыть невыделенное, показать вложенные, показать всё — встроенными командами
+  Navisworks. Ни один инструмент больше не перебирает всю модель: на федеративной модели
+  1,9 ГБ Navisworks больше не падает.
 
-*В 2.3.0:*
-- MCP-сервер теперь на .NET (`navis_mcp_server.dll`) вместо Python: Python ставить не нужно.
-- Новый установщик на русском и английском: ставит плагин, удаляет старый Python-сервер и сам
-  подключает сервер к Claude Desktop, Claude Code и Codex.
-- Сервер проверяет, что на порту 8765 отвечает именно мост Navisworks.
+*В 2.4.0:* положение моделей (диалог Units and Transform) — чтение, сдвиг, поворот,
+масштаб, возврат в исходное положение с сохранением геопривязки IFC.
+
+*В 2.3.0:* MCP-сервер на .NET вместо Python; установщик на русском и английском сам
+подключает сервер к Claude Desktop, Claude Code и Codex.
 
 ## Требования
 
@@ -60,18 +64,22 @@ sub-models, clash tests, sets, properties, viewpoints, view captures.
 The bridge starts only from **AI companion → MCP Bridge** in Navisworks and talks only inside the
 computer (localhost).
 
-**New in 2.4.0 — model position** (the Units and Transform dialog):
-- The assistant reads units, translation, rotation and scale of every loaded model and its bounding
-  box — an IFC that came with a shifted insertion point stands out.
-- It can move, rotate or scale a model or change its units, setting values or adding them to the
-  current position, and put a model back where it was. The IFC's georeference is kept.
-- The installer works while AI clients are open: restart the client after installing.
+**New in 2.5.0 — properties, search, sets, viewpoints, visibility:**
+- The assistant sees which properties a model has and their values, and searches with
+  several conditions at once — "pipes over DN 100 on levels E01 or E02", with numbers,
+  lengths and angles in their units.
+- Sets and viewpoints as in the Sets and Saved Viewpoints windows: folders, rename, move,
+  update, search-set conditions in readable form. A viewpoint stores and brings back hidden
+  items, colours and the section; the camera can be set exactly.
+- Properties of many items to CSV for Excel.
+- Hide, Hide Unselected, Unhide Children, Unhide All on Navisworks' own commands. No tool
+  walks the whole model any more: Navisworks no longer crashes on a 1.9 GB federated model.
 
-*In 2.3.0:*
-- The MCP server is now .NET (`navis_mcp_server.dll`) instead of Python: no Python needed.
-- A new installer in English and Russian: installs the plugin, removes the old Python server and
-  connects the server to Claude Desktop, Claude Code and Codex.
-- The server checks that port 8765 is served by the Navisworks bridge.
+*In 2.4.0:* model position (the Units and Transform dialog) — read, move, rotate, scale,
+put back keeping the IFC georeference.
+
+*In 2.3.0:* the MCP server is .NET instead of Python; the installer in English and Russian
+connects it to Claude Desktop, Claude Code and Codex.
 
 ## Requirements
 

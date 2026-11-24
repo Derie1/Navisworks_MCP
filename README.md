@@ -9,9 +9,12 @@
 > sub-models by file name, without walking the geometry. 2.3.0 replaces the Python
 > MCP server with a .NET one and adds an installer (EN/RU) that connects it to
 > Claude Desktop, Claude Code and Codex. 2.4.0 adds the model position tools
-> (Units and Transform: read, move / rotate / scale, undo).
+> (Units and Transform: read, move / rotate / scale, undo). 2.5.0 adds property
+> names and values, `find_items` with AND / OR conditions, set and viewpoint folders,
+> camera settings, CSV export of properties and Hide / Hide Unselected / Unhide on
+> Navisworks' own calls — nothing walks the whole model any more.
 
-> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides, model position — 66 tools through the Model Context Protocol.
+> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides and visibility, model position, CSV export of properties — 83 tools through the Model Context Protocol.
 
 <p align="center">
   <img src="docs/architecture.svg" alt="Architecture diagram" width="100%">
@@ -85,10 +88,16 @@ Or test from PowerShell with no MCP client involved:
 Invoke-RestMethod http://localhost:8765/health
 # ok      : True
 # product : Navisworks
-# version : 2.4.0
+# version : 2.5.0
 # port    : 8765
-# routes  : 62
+# routes  : 84
+# pid          : 12345                                  <- which Navisworks process answers
+# document     : C:\Projects\Model.nwf                <- the document open in it
+# documentOpen : True
+# uiBusy       : False                                  <- True while Navisworks is busy (long call, dialog)
 ```
+
+If several Navisworks windows are open, the bridge runs in the one where the button was clicked first (the port is taken after that): `pid` and `document` show which one.
 
 ### Connecting a client by hand
 
@@ -129,9 +138,10 @@ Writes `dist\NavisworksMCP-<version>\` (`INSTALL.BAT`, `RELEASE.md`, `README.md`
 ```powershell
 python tests\mcp_server_test.py                                            # MCP server, against a fake bridge
 python tests\smoke_test.py <work_dir> <a1.ifc> <a2.ifc> <b1.ifc> <b2.ifc>   # plugin routes, against Navisworks
+python tests\bigmodel_check.py <out_dir>                                   # read-only, on a large model already open
 ```
 
-`mcp_server_test.py` needs no Navisworks: it starts a fake bridge and checks initialize, the tool list, routing and argument renames, images, errors, the product check and that a slow call does not block others. `smoke_test.py` exercises the model-file, view and clash-result routes over HTTP against a running Navisworks (2026 or 2027) with the bridge started. It replaces the open document — start Navisworks with an empty document. It writes only into `<work_dir>`; the IFC files are read (the first one gets its modification time touched). Use copies, not live project files. Python is needed for the tests only.
+`mcp_server_test.py` needs no Navisworks: it starts a fake bridge and checks initialize, the tool list, routing and argument renames, images, errors, the product check and that a slow call does not block others. `smoke_test.py` exercises the model-file, view and clash-result routes over HTTP against a running Navisworks (2026 or 2027) with the bridge started. It replaces the open document — start Navisworks with an empty document. It writes only into `<work_dir>`; the IFC files are read (the first one gets its modification time touched). Use copies, not live project files. Expected numbers come from the model itself (e.g. `find_items` counts are compared with `list_property_values`). `bigmodel_check.py` runs the read-only tools on whatever large model is open and prints the time of every call; it changes only the selection and hidden state in memory (and shows everything at the end) — close the model without saving afterwards. Python is needed for the tests only.
 
 `INSTALL.BAT` can be pointed at a sandbox for tests: `NAVMCP_TARGET`, `NAVMCP_PROGRAMFILES`, `NAVMCP_APPDATA`, `NAVMCP_CLAUDE_CONFIG`, `NAVMCP_CODEX_CONFIG`, `NAVMCP_NO_CLIENTS=1`, `NAVMCP_NO_CLAUDE_CODE=1`, `NAVMCP_NO_RUNNING_CHECK=1` (see its header).
 
@@ -153,7 +163,7 @@ If the handler throws, the addin returns HTTP 500 with `{error, detail, path}`, 
 
 Most calls answer in milliseconds and time out after 30 s. Opening, appending, refreshing and saving models, running clash tests, auto-grouping and reports may take up to an hour on large projects.
 
-## Available tools (66)
+## Available tools (83)
 
 Argument names below are the **MCP tool argument names** (what the LLM sees). The addin's HTTP body uses some shorter aliases — the server does the rename.
 
@@ -161,9 +171,9 @@ Argument names below are the **MCP tool argument names** (what the LLM sees). Th
 
 | Tool | Purpose |
 |---|---|
-| `health_check` | Liveness probe. Returns `{ok, version, port, routes}`. |
+| `health_check` | Liveness probe: `{ok, version, port, routes, pid, document, documentOpen, uiBusy}`. |
 | `get_document_info` | Title, filename, units, model count, per-model file paths. |
-| `get_model_statistics` | Element counts grouped by class display name. |
+| `get_model_statistics` | Item counts by class and how many have geometry — whole document, `files`, `set_name` or selection; stops at `max_items` / `time_limit_s` (`truncated`). |
 | `get_model_tree` | Tree of sub-model files (.nwd/.nwc/.ifc/...) in the open document, flat in pre-order with a depth per node. Does not descend into geometry. |
 | `select_files` | Select whole sub-models by file name (`names[]`, as in `get_model_tree`, extension optional; `contains=true` for substrings, `add_to_selection` to extend). Walks only the file tree, so it is fast on large federated models. Returns the tree path of every match and the names not found. |
 | `color_files` | Color whole sub-models by file name (`names[]` + `r`,`g`,`b`), same matching as `select_files`; leaves the selection alone. |
@@ -241,46 +251,81 @@ Zoom and section box warn when the items span kilometres — usually files in di
 | `set_clash_group_status` | `test_name`, `group_name`, `status` | Mark a group (and propagate to its child clashes) as `New`, `Active`, `Reviewed`, `Approved`, or `Resolved`. Uses `TestsEditResultStatus` under the hood. |
 | `delete_clash_group` | `test_name`, `group_name` | Remove a group (and its child results) from a test. |
 
+### Properties
+
+| Tool | Required args | Purpose |
+|---|---|---|
+| `list_property_names` | — | Categories and properties that exist (display and internal names), with the number of items, data type and a sample value. Use before searching instead of guessing names. |
+| `list_property_values` | `category`, `property` | Distinct values with counts (most frequent first) and min / max for numbers. |
+| `export_properties` | `path` | CSV, one row per item: File, Path, Name, Class and `properties` (`Category/Property`), all properties of `categories`, or every property found. `level` all / geometry / top, `require_property`, `delimiter` (`;` for Excel with German / Russian settings), UTF-8 with BOM. |
+| `get_element_properties` | — (or `name`) | All property tabs and values of the first selected item, or of the first item with exactly that name. |
+
+These walk the items of a scope — the whole document, `scope=selection`, `set_name` or `files` — and stop at `max_items` / `time_limit_s` with `truncated=true`. Values are typed: lengths with the document unit (`-0.07 m`), angles in degrees, `Yes` / `No`, dates. On a federated model narrow the scope: the walk runs at about 10 000 items/s and Navisworks does not respond while it runs.
+
+### Find / selection
+
+| Tool | Required args | Purpose |
+|---|---|---|
+| `find_items` | `conditions` or `any_of` (or the old `category`/`property`/`operator`/`value`) | Navisworks' own Find Items. `conditions` are ANDed; `any_of` is a list of AND-groups that are ORed. Operators: `equals`, `not_equals`, `>`, `>=`, `<`, `<=`, `contains`, `wildcard`, `starts_with`, `ends_with`, `has_property`, `not_has_property`, `has_category`, `not_has_category`; `negate` per condition; text ignores case by default. Values are converted to the property's type (decimals compared with a small tolerance). Scope as above; `select_results`; `save_as_search_set` (+ `folder`). Stops at `max_results` / `time_limit_s`. |
+| `find_items_by_name` | `pattern` | Native search on the item name: `match` contains / exact / wildcard, scope, limits. |
+| `select_all` / `deselect_all` / `invert_selection` | — | Select All selects the model roots; invert uses Navisworks' own inversion. |
+| `select_from_set` | `name` | Replace the selection with a set's items. |
+| `get_current_selection` | — | First items of the selection (with their hidden flag) + total count. |
+
+Example — pipes over DN 100 on two levels:
+
+```json
+{"conditions": [{"category": "Element", "property": "Category", "value": "Pipes"},
+                {"category": "Element", "property": "Diameter", "operator": ">", "value": "100 mm"}],
+ "any_of": [[{"category": "Element", "property": "Level", "value": "E01"}],
+            [{"category": "Element", "property": "Level", "value": "E02"}]]}
+```
+
 ### Selection sets / search sets
 
-| Tool | Required args | Purpose |
-|---|---|---|
-| `list_sets` | — | Every saved selection set and search set. |
-| `create_selection_set` | `name` | Save the current viewport selection as a named set. |
-| `get_selection_set_items` | `name` | Items in a named set (search sets re-evaluated live). |
-| `create_search_set` | `name`, `value` | Property-based saved search. Operators: `equals`, `contains`, `startsWith`, `endsWith`. |
-| `execute_search_set` | `name` | Re-run a saved search and return match count. |
-| `delete_set` | `name` | Remove a selection or search set. |
-
-### Find / properties / selection
+A set or folder is addressed by its path (`ОВ/Трубы/DN100`) or by its name alone (first match). Every tool that takes a set (`set_name`, clash selections, ...) accepts the path.
 
 | Tool | Required args | Purpose |
 |---|---|---|
-| `find_items` | `value` | Single-condition property search. |
-| `find_items_by_name` | `pattern` | Substring match on element display names. Walks every element — slow on large federated models; for whole sub-models use `select_files` / `color_files`. |
-| `select_all` / `deselect_all` / `invert_selection` | — | Bulk selection ops. |
-| `select_from_set` | `name` | Replace current selection with a named set's contents. |
-| `get_current_selection` | — | First N selected items + total count. |
-| `get_element_properties` | — (or `name`) | All property tabs/values for the first selected (or named) item. |
+| `list_sets` | — | Every set and folder: path, type (selection / search / folder), folder, item count of selection sets. |
+| `get_set_info` | `name` | Type, folder, a search set's conditions in readable form (with OR groups) and scope, number of items, items per file, first items; a folder's contents. |
+| `create_selection_set` | `name` | The current selection as a set; the name may be a path or use `folder` (created if missing). `replace=true` to overwrite. |
+| `create_search_set` | `name` + conditions | Search set with the same conditions as `find_items`, in a folder if asked. |
+| `update_selection_set` | `name` | From the current selection: `mode` replace / add / remove (Update in the Sets window). |
+| `update_search_set` | `name` + conditions | New conditions; returns old and new conditions and the number of matches. |
+| `create_set_folder` | `path` | Folder with missing parents. |
+| `rename_set` / `move_set` | `name` | Rename; move into another folder and / or to a `position`. A folder cannot go into itself. |
+| `get_selection_set_items` / `execute_search_set` | `name` | Items of a set / number of matches of a search set. |
+| `delete_set` | `name` | Delete a set; a non-empty folder only with `recursive=true`. |
 
 ### Color / visibility
 
 | Tool | Required args | Purpose |
 |---|---|---|
-| `color_elements` | `r, g, b` | Permanent color override (0–255 RGB). |
+| `color_elements` | `r, g, b` | Permanent color override (0–255 RGB) of the selection. |
 | `set_transparency` | — | 0.0 opaque … 1.0 fully transparent. |
-| `hide_elements` / `unhide_all` / `isolate_elements` | — | Visibility ops on the current selection. |
+| `hide_elements` | — | Hide the selection or `set_name` (Hide). |
+| `hide_unselected` / `isolate_elements` | — | Hide everything else (Hide Unselected) — the kept items are made visible. |
+| `unhide_children` | — | Show the selection or set with everything inside it (Unhide Children). |
+| `unhide_all` | — | Show everything (Unhide All). |
 | `reset_overrides` | — | Clear every color/transparency override and unhide everything. |
+
+All of them use Navisworks' own calls (`Invert`, `ResetAllHidden`, `MakeVisible`) — fast on any model size.
 
 ### Viewpoints
 
+Paths work as for sets: `Коллизии/Этаж 1/Узел 3`, also inside viewpoint animations.
+
 | Tool | Required args | Purpose |
 |---|---|---|
-| `list_viewpoints` | — | All saved viewpoints (recursive through groups). |
-| `save_viewpoint` | `name` | Save current camera as a named viewpoint. |
-| `goto_viewpoint` | `name` | Navigate to a saved viewpoint. |
-| `delete_viewpoint` | `name` | Remove a saved viewpoint. |
-| `get_current_viewpoint` | — | Current camera position, projection, focal distance. |
+| `list_viewpoints` | — | Viewpoints, folders and animations with path and folder, whether a viewpoint stores hidden items / colours; `current` = the one selected in the window. |
+| `save_viewpoint` | `name` | The current view (camera, section) into a folder (path or `folder`). `with_overrides=true` also stores hidden items and colour / transparency overrides. `replace=true` to overwrite. |
+| `goto_viewpoint` | `name` | Like a click in Saved Viewpoints: camera, section and stored hidden items / colours (these replace the current ones; `apply_overrides=false` for the camera only). |
+| `update_viewpoint` | `name` | Take the current view (Update); name and place stay. |
+| `get_viewpoint` / `get_current_viewpoint` | — | Full camera: position, direction, up, target, projection, field of view (degrees) or orthographic height, focal distance, speeds, lighting, render style, section box; stored overrides of a saved one. `include_camera_json` adds the AutodeskCommonCamera JSON. |
+| `set_camera` | — | Change the current view or a saved viewpoint (`name`, its overrides stay): `position`, `target` or `direction`, `up`, `projection`, `fov_deg`, `ortho_height`, `focal_distance`, speeds, `lighting`, `render_style`, `camera_json`. With target / direction the picture stays upright. |
+| `create_viewpoint_folder` / `rename_viewpoint` / `move_viewpoint` | `path` / `name` | Folders, rename, move — as for sets. |
+| `delete_viewpoint` | `name` | Delete; a non-empty folder only with `recursive=true`. |
 
 The complete route list lives in `MCPBridgePlugin.cs` (`Dispatch`); the tool definitions in `server\NavisMcpServer\tools.json` (`tools` for the client, `bridge` for routes and renames). Planned tools are in [ROADMAP.md](ROADMAP.md).
 
@@ -297,6 +342,12 @@ Some Navisworks operations open a modal dialog (missing files when opening, file
 
 **Port 8765 already in use.**
 Edit the `Port` constant near the top of `MCPBridgePlugin.cs`, rebuild, reinstall. Then set the environment variable `NAVIS_MCP_PORT` for the MCP server to match.
+
+**`no active document` although a model is open, or answers from the wrong model.**
+Several Navisworks windows run and the bridge started in another one (the first to take port 8765). `health_check` shows `pid` and `document`. Close the other windows, or click the button in the right one after closing the first.
+
+**Navisworks does not respond for a while on a large model.**
+`list_property_names`, `list_property_values`, `export_properties` and `get_model_statistics` walk items on the UI thread up to their limit (30–120 s by default) and then answer with `truncated=true`. Narrow the scope (`files`, `set_name`, selection) or lower `time_limit_s`; searches (`find_items`, `find_items_by_name`) use Navisworks' own search and take seconds.
 
 **HTTP 500 on every call.**
 Check `%TEMP%\navisworks_mcp_addin.log`. Most often the message is `no active document` — open a model file and retry.
@@ -347,6 +398,12 @@ Navisworks_MCP/
 ├── ViewHandlers.cs              ← partial Handlers — capture, zoom, section box
 ├── ClashGroupHandlers.cs        ← partial Handlers — clash groups
 ├── ClashResultHandlers.cs       ← partial Handlers — clash result status / assignee / comments, zoom, auto-group, report
+├── VisibilityHandlers.cs        ← partial Handlers — hide / hide unselected / unhide children / unhide all
+├── PropertyHandlers.cs          ← partial Handlers — property names and values, scope walk with limits, typed values
+├── SearchHandlers.cs            ← partial Handlers — find_items (AND / OR), search by name, statistics
+├── SetHandlers.cs               ← partial Handlers — sets and folders; path lookup shared with viewpoints
+├── ViewpointHandlers.cs         ← partial Handlers — saved viewpoints, camera
+├── ExportHandlers.cs            ← partial Handlers — properties to CSV
 ├── server/
 │   └── NavisMcpServer/          ← the MCP server, net8.0 → navis_mcp_server.dll
 │       ├── tools.json           ← tool definitions + their plugin routes (single source)
@@ -359,7 +416,8 @@ Navisworks_MCP/
 │   └── RELEASE.md               ← release notes RU + EN, copied into the package
 ├── tests/
 │   ├── mcp_server_test.py       ← MCP server against a fake bridge
-│   └── smoke_test.py            ← plugin routes against a running Navisworks
+│   ├── smoke_test.py            ← plugin routes against a running Navisworks
+│   └── bigmodel_check.py        ← read-only timing check on a large open model
 ├── docs/
 │   ├── architecture.svg
 │   └── connection-flow.svg
@@ -393,6 +451,11 @@ These show up the moment you write a new clash handler. All three are settled in
 - **`SaveFile` to .nwd swaps the open document** for that .nwd (all files collapse into one model). `ExportToNwd` writes the same file and leaves the document alone — `save_document` uses it by default.
 - **Publishing needs an open .nwd.** From an .nwf, `PublishFile` pops "You may only publish NWD files".
 - **Model transforms carry the file's own placement.** `Model.Transform` of a freshly loaded IFC already holds its georeference translation (and, for files in mm, `Units.Millimeters`). `Transform3D.Factor()` splits it into translation / rotation / scale (no public constructor for `Transform3DComponents` — change the one `Factor()` returns and `Combine()` it); write back with `DocumentModels.SetModelUnitsAndTransform`.
+- **Property values are typed.** `VariantData.ToDisplayString()` works only for string values and throws for numbers, lengths, booleans...: read each `DataType` with its own accessor (`FormatVariant`). Lengths come in document units.
+- **Search conditions compare in the property's type.** A length needs `VariantData.FromDoubleLength`, an angle radians; stored decimals carry noise (-0.069999 for -0.07), so `find_items` turns equals into a narrow range. `DisplayStringContains` / `DisplayStringWildcard` work on text properties only. `SearchConditionCollection.AddGroup` makes OR-groups.
+- **Never walk the whole tree on a federated model.** `DescendantsAndSelf` over 1.9 GB crashed Navisworks. Use `Search` / `FindIncremental`, `ModelItemCollection.Invert`, `DocumentModels.ResetAllHidden` / `MakeVisible`, `Selection.SelectAll`; where a walk is unavoidable, bound it.
+- **Saved items go stale after a change.** A `GroupItem` read before `AddCopy` does not see the new child: walk again from `RootItem` (folders are created one at a time this way). Find items by walking from the root with parent + index rather than via `Parent` or equality of wrappers.
+- **`CaptureRuntimeOverrides()` returns a viewpoint without a camera** ("Camera not set"): copy the current camera in (`TrySetCamera(GetCamera())`). Hidden items are stored on the file's top children, not on the file node. The section is part of `Viewpoint.ClipPlanes` and is saved with the viewpoint.
 - **File-format versions:** `DocumentFileVersion` values are raw format numbers; 2016–2025 are all 448, 2026 is 451. `NwdExportOptions.FileVersion` takes that number as `int`.
 
 ### Adding a new MCP tool
