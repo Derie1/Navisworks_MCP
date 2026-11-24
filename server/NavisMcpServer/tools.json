@@ -566,6 +566,106 @@
       }
     },
     {
+      "name": "list_property_names",
+      "description": "Which property categories and properties exist (Navisworks Properties window), with the number of items that have each, its data type and a sample value. Use it before find_items / create_search_set / list_property_values to get exact category and property names instead of guessing. The walk stops at max_items or time_limit_s (truncated=true): on a large federated model narrow it with files, set_name or scope=selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all",
+            "description": "Items to look at: the whole document or the current selection (with everything inside it)."
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Look at a saved selection/search set instead."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Look at these sub-model files only (names as in list_model_files / get_model_tree)."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 30,
+            "description": "Stop after this many seconds (truncated=true)."
+          },
+          "category": {
+            "type": "string",
+            "description": "Only this category (display or internal name), e.g. 'Element' or 'IFC'."
+          },
+          "max_items": {
+            "type": "integer",
+            "default": 20000,
+            "description": "Stop after this many items."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "list_property_values",
+      "description": "Distinct values of one property with the number of items for each (most frequent first), plus min/max for numeric properties. Use it to see what to search for, e.g. all levels, systems or diameters. Same scope and limits as list_property_names.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Property category (display or internal name), from list_property_names."
+          },
+          "property": {
+            "type": "string",
+            "description": "Property (display or internal name), from list_property_names."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all",
+            "description": "Items to look at: the whole document or the current selection (with everything inside it)."
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Look at a saved selection/search set instead."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Look at these sub-model files only (names as in list_model_files / get_model_tree)."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 30,
+            "description": "Stop after this many seconds (truncated=true)."
+          },
+          "max_items": {
+            "type": "integer",
+            "default": 50000,
+            "description": "Stop after this many items."
+          },
+          "max_values": {
+            "type": "integer",
+            "default": 200,
+            "description": "Return at most this many distinct values."
+          }
+        },
+        "required": [
+          "category",
+          "property"
+        ]
+      }
+    },
+    {
       "name": "color_elements",
       "description": "Override the color (RGB 0-255) of currently selected elements.",
       "inputSchema": {
@@ -1497,6 +1597,12 @@
     },
     "get_element_properties": {
       "route": "/elements/properties"
+    },
+    "list_property_names": {
+      "route": "/properties/names"
+    },
+    "list_property_values": {
+      "route": "/properties/values"
     },
     "color_elements": {
       "route": "/elements/color"

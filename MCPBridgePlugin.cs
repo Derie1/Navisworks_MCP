@@ -91,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.1";
-        private const int Routes = 64;
+        private const string Version = "2.4.2";
+        private const int Routes = 66;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -333,6 +333,8 @@ namespace NavisworksMcpAddin
                     case "/elements/find": return Handlers.ElementsFind(body);
                     case "/elements/find-by-name": return Handlers.ElementsFindByName(body);
                     case "/elements/properties": return Handlers.ElementsProperties(body);
+                    case "/properties/names": return Handlers.PropertyNames(body);
+                    case "/properties/values": return Handlers.PropertyValues(body);
 
                     // Overrides
                     case "/elements/color": return Handlers.ElementsColor(body);
@@ -1015,11 +1017,7 @@ namespace NavisworksMcpAddin
                 var props = new List<object>();
                 foreach (DataProperty p in cat.Properties)
                 {
-                    string v;
-                    try { v = p.Value.ToDisplayString(); }
-                    catch { v = "(unreadable)"; }
-
-                    props.Add(new { name = p.DisplayName, value = v });
+                    props.Add(new { name = p.DisplayName, value = FormatVariant(p.Value) });
                 }
                 categories.Add(new { name = cat.DisplayName, properties = props });
             }

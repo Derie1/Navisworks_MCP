@@ -200,6 +200,73 @@ def visibility_checks(j, names):
           lambda r: r["selected"] == 3 or f"FAIL {r}")
 
 
+def property_checks(j, names):
+    """list_property_names / list_property_values (2.4.2+) on Master.nwf."""
+    check("open_document Master.nwf (properties)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    a1 = names[0]
+    allp = check("list_property_names (all)", "/properties/names", None,
+                 lambda r: (r["itemsScanned"] > 0 and not r["truncated"]
+                            and any(c["name"] == "Item" for c in r["categories"])
+                            and f"{r['itemsScanned']} items, {r['categoryCount']} categories: "
+                                + ", ".join(c["name"] for c in r["categories"][:8]))
+                           or f"FAIL {str(r)[:150]}")
+    total = allp.get("itemsScanned", 0)
+    bad = [f"{c['name']}/{p['name']}" for c in allp.get("categories", []) for p in c["properties"]
+           if p["sample"] == "(unreadable)"]
+    results.append(("every sample value readable", not bad))
+    print(f"[{'PASS' if not bad else 'FAIL'}] {'every sample value readable':<44}         {', '.join(bad)[:150]}")
+    types = sorted({p["dataType"] for c in allp.get("categories", []) for p in c["properties"]})
+    print("       data types:", ", ".join(types))
+    check("get_element_properties E1_OKRB: elevation -0.07 m", "/elements/properties", {"name": "E1_OKRB"},
+          lambda r: (lambda vals: (any(v.replace(" ", "") in ("-0.07m",) for v in vals) and "found -0.07 m")
+                     or f"FAIL {[v for v in vals if 'm' in v][:8]}")(
+              [p["value"] for c in r["categories"] for p in c["properties"]]))
+    check("list_property_names files=[a1]", "/properties/names", {"files": [a1]},
+          lambda r: (0 < r["itemsScanned"] < total and f"{r['itemsScanned']} of {total} items") or f"FAIL {r['itemsScanned']}")
+    check("list_property_names category=Item", "/properties/names", {"category": "item"},
+          lambda r: (r["categoryCount"] == 1 and any(p["name"] == "Type" for p in r["categories"][0]["properties"])
+                     and ", ".join(f"{p['name']}={p['sample']}" for p in r["categories"][0]["properties"][:5]))
+                    or f"FAIL {str(r)[:150]}")
+    check("list_property_names max_items=10 -> truncated", "/properties/names", {"max_items": 10},
+          lambda r: (r["truncated"] and r["itemsScanned"] == 10 and r["stopReason"]) or f"FAIL {r}")
+    check("list_property_names unknown category -> error", "/properties/names", {"category": "No such cat"},
+          expect_error=True)
+    call("/selection/deselect-all")
+    check("list_property_names scope=selection, nothing selected -> error", "/properties/names",
+          {"scope": "selection"}, expect_error=True)
+    check("list_property_names bad scope -> error", "/properties/names", {"scope": "galaxy"}, expect_error=True)
+
+    check("list_property_values Item/Type", "/properties/values", {"category": "Item", "property": "Type"},
+          lambda r: (r["itemsWithProperty"] == total and r["distinctValues"] > 1
+                     and sum(v["items"] for v in r["values"]) == r["itemsWithProperty"]
+                     and ", ".join(f"{v['value']}:{v['items']}" for v in r["values"][:6]))
+                    or f"FAIL {str(r)[:150]}")
+    call("/files/select", {"names": [a1]})
+    check("list_property_values scope=selection (a1)", "/properties/values",
+          {"category": "Item", "property": "Type", "scope": "selection"},
+          lambda r: (0 < r["itemsWithProperty"] < total and f"{r['itemsWithProperty']} items") or f"FAIL {r}")
+    check("list_property_values max_values=2", "/properties/values",
+          {"category": "Item", "property": "Type", "max_values": 2},
+          lambda r: (len(r["values"]) == 2 and r["valuesTruncated"]) or f"FAIL {r}")
+    check("list_property_values: property missing -> error", "/properties/values", {"category": "Item"},
+          expect_error=True)
+    check("list_property_values unknown property -> 0 items", "/properties/values",
+          {"category": "Item", "property": "No such property"},
+          lambda r: r["itemsWithProperty"] == 0 or f"FAIL {r}")
+
+    # A numeric property found in the model: min / max come back as displayed.
+    num = next(((c["name"], p["name"]) for c in allp.get("categories", []) for p in c["properties"]
+                if p["dataType"] in ("DoubleLength", "DoubleArea", "DoubleVolume", "Double")), None)
+    if num:
+        check(f"list_property_values numeric {num[0]}/{num[1]}", "/properties/values",
+              {"category": num[0], "property": num[1]},
+              lambda r: (r["min"] not in (None, "(unreadable)") and r["max"] not in (None, "(unreadable)")
+                         and f"min {r['min']}, max {r['max']}; " + ", ".join(v["value"] for v in r["values"][:4]))
+                        or f"FAIL {str(r)[:150]}")
+    else:
+        print("[SKIP] no numeric property in the test files")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -360,6 +427,8 @@ def main():
 
     if version >= (2, 4) and str(health.get("version")) != "2.4.0":
         visibility_checks(j, names)
+    if "routes" in health and health["routes"] >= 66:
+        property_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)

@@ -453,8 +453,7 @@ namespace NavisworksMcpAddin
                 DataProperty p = cur.PropertyCategories.FindPropertyByDisplayName(category, property);
                 if (p != null)
                 {
-                    string v;
-                    try { v = p.Value.ToDisplayString(); } catch { v = null; }
+                    string v = FormatVariant(p.Value);
                     if (!string.IsNullOrWhiteSpace(v)) return v;
                 }
                 if (cur.HasModel) break;
