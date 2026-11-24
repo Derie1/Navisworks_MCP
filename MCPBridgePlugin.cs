@@ -91,8 +91,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.5";
-        private const int Routes = 78;
+        private const string Version = "2.4.6";
+        private const int Routes = 79;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -341,6 +341,7 @@ namespace NavisworksMcpAddin
                     case "/elements/properties": return Handlers.ElementsProperties(body);
                     case "/properties/names": return Handlers.PropertyNames(body);
                     case "/properties/values": return Handlers.PropertyValues(body);
+                    case "/properties/export": return Handlers.PropertiesExport(body);
 
                     // Overrides
                     case "/elements/color": return Handlers.ElementsColor(body);

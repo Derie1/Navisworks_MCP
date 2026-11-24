@@ -1252,6 +1252,90 @@
       }
     },
     {
+      "name": "export_properties",
+      "description": "Write properties of many items to a CSV file (one row per item: File, Path, Name, Class, then the properties) for quality checks, quantity lists or comparison in Excel. Values as list_property_values shows them (lengths with the document unit). Choose columns with properties ['Category/Property', ...] or categories (all their properties); without both every property found becomes a column (up to max_columns). UTF-8 with BOM. The walk stops at max_items / time_limit_s (truncated=true).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Output .csv file."
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Columns as 'Category/Property', e.g. 'Item/Type', 'Element/Level'."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Without properties: every property of these categories becomes a column."
+          },
+          "require_property": {
+            "type": "string",
+            "description": "Only items that have this 'Category/Property', e.g. 'IFC/GlobalId' for real elements without their geometry nodes."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "all",
+              "geometry",
+              "top"
+            ],
+            "default": "all",
+            "description": "all = every item in the scope with everything inside; geometry = only items with geometry; top = only the selected / set items themselves."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all"
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Export the items of this selection / search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Export only these sub-model files."
+          },
+          "delimiter": {
+            "type": "string",
+            "default": ",",
+            "description": "Column separator: ',' (default), ';' for Excel with German / Russian settings, or 'tab'."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false
+          },
+          "max_items": {
+            "type": "integer",
+            "default": 50000
+          },
+          "max_columns": {
+            "type": "integer",
+            "default": 200
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 120
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
       "name": "color_elements",
       "description": "Override the color (RGB 0-255) of currently selected elements.",
       "inputSchema": {
@@ -2427,6 +2511,10 @@
     },
     "list_property_values": {
       "route": "/properties/values"
+    },
+    "export_properties": {
+      "route": "/properties/export",
+      "long": true
     },
     "color_elements": {
       "route": "/elements/color"

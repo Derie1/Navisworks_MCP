@@ -633,6 +633,78 @@ def viewpoint_checks(j, names):
     check("no viewpoints left", "/viewpoints/list", None, lambda r: r["count"] == 0 or f"FAIL {r}")
 
 
+def read_csv(path, delimiter=","):
+    import csv
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f, delimiter=delimiter))
+
+
+def export_checks(j, names):
+    """export_properties (2.4.6+) on Master.nwf; counts against list_property_values."""
+    check("open_document Master.nwf (export)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    a1 = names[0]
+    types_r = call("/properties/values", {"category": "Item", "property": "Type"})
+    n_all = types_r["itemsScanned"]
+    n_cov = {v["value"]: v["items"] for v in types_r["values"]}.get("IfcCovering", 0)
+    n_elev = call("/properties/values", {"category": "Element", "property": "Elevation"})["itemsWithProperty"]
+    out = j("export", "props.csv")
+
+    def rows_ok(path, want, delimiter=","):
+        def f(r):
+            if not os.path.exists(path):
+                return "FAIL no file"
+            rows = read_csv(path, delimiter)
+            return (len(rows) == r["rows"] == want and f"{len(rows)} rows, {r['columns']} columns, {r['bytes']} bytes") \
+                or f"FAIL file {len(rows)} / answer {r['rows']} / expected {want}"
+        return f
+
+    check("export_properties Item/Type + Element/Elevation (all)", "/properties/export",
+          {"path": out, "properties": ["Item/Type", "Element/Elevation"]}, rows_ok(out, n_all))
+    rows = read_csv(out) if os.path.exists(out) else []
+    results.append(("csv: header File, Path, Name, Class + columns",
+                    bool(rows) and list(rows[0].keys()) == ["File", "Path", "Name", "Class", "Item/Type", "Element/Elevation"]))
+    print(f"[{'PASS' if results[-1][1] else 'FAIL'}] {'csv: header':<44}         {list(rows[0].keys()) if rows else '-'}")
+    cov_rows = sum(1 for r in rows if r["Item/Type"] == "IfcCovering")
+    results.append(("csv: IfcCovering rows = list_property_values", cov_rows == n_cov))
+    print(f"[{'PASS' if cov_rows == n_cov else 'FAIL'}] {'csv: IfcCovering rows':<44}         {cov_rows} vs {n_cov}")
+    elev = [r["Element/Elevation"] for r in rows if r["Element/Elevation"]]
+    ok = len(elev) == n_elev and "-0.07 m" in elev
+    results.append(("csv: elevations with unit", ok))
+    print(f"[{'PASS' if ok else 'FAIL'}] {'csv: elevations with unit':<44}         {len(elev)} values, e.g. {elev[:3]}")
+
+    check("export again without overwrite -> error", "/properties/export",
+          {"path": out, "properties": ["Item/Type"]}, expect_error=True)
+    check("export require_property Element/Elevation, ';'", "/properties/export",
+          {"path": j("export", "storeys.csv"), "properties": ["Element/Elevation", "Item/Name"],
+           "require_property": "Element/Elevation", "delimiter": ";"},
+          rows_ok(j("export", "storeys.csv"), n_elev, ";"))
+    check("export level=geometry -> fewer rows", "/properties/export",
+          {"path": j("export", "geom.csv"), "properties": ["Item/Type"], "level": "geometry"},
+          lambda r: (0 < r["rows"] < n_all and f"{r['rows']} of {n_all}") or f"FAIL {r['rows']}")
+    call("/files/select", {"names": [a1]})
+    check("export level=top, scope=selection -> 1 row", "/properties/export",
+          {"path": j("export", "top.csv"), "properties": ["Item/Name"], "level": "top", "scope": "selection"},
+          rows_ok(j("export", "top.csv"), 1))
+    check("export files=[a1], all properties of category Item", "/properties/export",
+          {"path": j("export", "a1_item.csv"), "files": [a1], "categories": ["Item"]},
+          lambda r: (r["columns"] > 5 and "Item/Type" in r["header"] and r["rows"] < n_all
+                     and f"{r['rows']} rows, {r['columns']} columns") or f"FAIL {r}")
+    check("export every property, max_columns=10 -> warning", "/properties/export",
+          {"path": j("export", "wide.csv"), "max_columns": 10},
+          lambda r: (r["columns"] == 14 and r["warnings"] and r["warnings"][0][:60]) or f"FAIL {r}")
+    check("export max_items=7 -> truncated", "/properties/export",
+          {"path": j("export", "few.csv"), "properties": ["Item/Type"], "max_items": 7},
+          lambda r: (r["rows"] == 7 and r["truncated"]) or f"FAIL {r}")
+    check("export unknown property -> warning", "/properties/export",
+          {"path": j("export", "none.csv"), "properties": ["Item/No such"]},
+          lambda r: (r["warnings"] and "no item has" in r["warnings"][0] and r["warnings"][0]) or f"FAIL {r}")
+    check("export bad extension -> error", "/properties/export", {"path": j("export", "x.txt")}, expect_error=True)
+    check("export bad property form -> error", "/properties/export",
+          {"path": j("export", "y.csv"), "properties": ["Type"]}, expect_error=True)
+    check("export bad level -> error", "/properties/export",
+          {"path": j("export", "z.csv"), "level": "leaves"}, expect_error=True)
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -801,6 +873,8 @@ def main():
         set_checks(j, names)
     if health.get("routes", 0) >= 78:
         viewpoint_checks(j, names)
+    if health.get("routes", 0) >= 79:
+        export_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
