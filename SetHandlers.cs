@@ -106,7 +106,7 @@ namespace NavisworksMcpAddin
                     {
                         SavedItem c = cur.Children[k];
                         if (string.Equals(c.DisplayName, parts[p], StringComparison.OrdinalIgnoreCase)
-                            && (p == parts.Length - 1 || tree.IsFolder(c))) { idx = k; break; }
+                            && (p == parts.Length - 1 || c is GroupItem)) { idx = k; break; }
                     }
                     if (idx < 0) break;
                     SavedItem hit = cur.Children[idx];
@@ -125,7 +125,7 @@ namespace NavisworksMcpAddin
                     SavedItem c = grp.Children[k];
                     if (string.Equals(c.DisplayName, wanted, StringComparison.OrdinalIgnoreCase))
                         return new SetLoc { Item = c, Parent = grp, Index = k, Path = prefix + c.DisplayName };
-                    if (tree.IsFolder(c))
+                    if (c is GroupItem)  // folders, and viewpoint animations too
                     {
                         SetLoc r = Dfs((GroupItem)c, prefix + c.DisplayName + "/");
                         if (r != null) return r;

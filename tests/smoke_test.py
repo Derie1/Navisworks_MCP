@@ -758,6 +758,10 @@ def name_checks(j, names):
           lambda r: (0 < r["total"] < total and r["scope"].startswith("files") and f"{r['total']}") or f"FAIL {r}")
     check("get_model_statistics max_items=10 -> truncated", "/document/statistics", {"max_items": 10},
           lambda r: (r["total"] == 10 and r["truncated"]) or f"FAIL {r}")
+    check("health names the open document and the process", "/health", None,
+          lambda r: (str(r.get("document") or "").lower().endswith("master.nwf") and r.get("documentOpen")
+                     and isinstance(r.get("pid"), int) and not r.get("uiBusy")
+                     and f"pid {r['pid']}, {os.path.basename(r['document'])}") or f"FAIL {r}")
 
 
 def main():

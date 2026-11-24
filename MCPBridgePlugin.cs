@@ -91,7 +91,7 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.7";
+        private const string Version = "2.4.8";
         private const int Routes = 79;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
@@ -267,14 +267,20 @@ namespace NavisworksMcpAddin
             if (path == "/health")
             {
                 // "product" lets the MCP server check that it reached this bridge
-                // and not some other program listening on the port.
+                // and not some other program listening on the port. "document"
+                // and "pid" tell which Navisworks window answers when several run.
+                bool busy = !RefreshDocumentInfo(1500);
                 return new
                 {
                     ok = true,
                     product = "Navisworks",
                     version = Version,
                     port = Port,
-                    routes = Routes
+                    routes = Routes,
+                    pid = System.Diagnostics.Process.GetCurrentProcess().Id,
+                    document = _docName,
+                    documentOpen = _docOpen,
+                    uiBusy = busy
                 };
             }
 
@@ -395,6 +401,31 @@ namespace NavisworksMcpAddin
         // ─────────────────────────────────────────────────────────────────────
         //  UI-thread marshaling
         // ─────────────────────────────────────────────────────────────────────
+
+        // The open document, read on the UI thread without blocking /health:
+        // Post() and wait a little. False = the UI thread is busy (a long
+        // call or a dialog); _docName then keeps the last known value.
+        private static volatile string _docName;
+        private static volatile bool _docOpen;
+
+        private static bool RefreshDocumentInfo(int waitMs)
+        {
+            if (_uiContext == null) return false;
+            var done = new ManualResetEventSlim(false);
+            _uiContext.Post(_ =>
+            {
+                try
+                {
+                    var d = NavisApp.ActiveDocument;
+                    bool open = d != null && !d.IsClear;
+                    _docOpen = open;
+                    _docName = open ? (string.IsNullOrEmpty(d.FileName) ? "(unsaved)" : d.FileName) : null;
+                }
+                catch { }
+                finally { done.Set(); }
+            }, null);
+            return done.Wait(waitMs);
+        }
 
         private static T RunOnUi<T>(Func<T> func)
         {
