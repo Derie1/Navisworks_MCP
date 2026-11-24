@@ -160,6 +160,121 @@ namespace NavisworksMcpAddin
             return found;
         }
 
+        // ── Search by name (Item/Name) ──────────────────────────────────────
+        // Navisworks' own search on the item name instead of walking the tree:
+        // the walk crashed Navisworks on a 1.9 GB federated model.
+
+        private static Search NameSearch(Document doc, Dictionary<string, object> body, string pattern, string match)
+        {
+            SearchCondition cond = SearchCondition.HasPropertyByName(PropertyCategoryNames.Item, DataPropertyNames.ItemName);
+            switch (match)
+            {
+                case "exact": cond = cond.EqualValue(VariantData.FromDisplayString(pattern)); break;
+                case "wildcard": cond = cond.DisplayStringWildcard(pattern); break;
+                case "contains": cond = cond.DisplayStringContains(pattern); break;
+                default: throw new ArgumentException($"unknown match '{match}'. Valid: contains, exact, wildcard");
+            }
+            cond = cond.IgnoreStringValueCase();
+
+            var search = new Search();
+            ResolveSearchScope(doc, body, search);
+            search.Locations = SearchLocations.DescendantsAndSelf;
+            search.PruneBelowMatch = false;
+            search.SearchConditions.Add(cond);
+            return search;
+        }
+
+        private static string NameMatchMode(Dictionary<string, object> body)
+        {
+            string m = GetString(body, "match", null);
+            if (m != null) return m.Trim().ToLowerInvariant();
+            return GetBool(body, "exact", false) ? "exact" : "contains";
+        }
+
+        public static object ElementsFindByName(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            string pattern = GetString(body, "pattern", null);
+            if (string.IsNullOrEmpty(pattern)) throw new ArgumentException("pattern is required");
+            string match = NameMatchMode(body);
+            int limit = Math.Max(0, GetInt(body, "limit", 50));
+            bool select = GetBool(body, "select", false);
+
+            Search search = NameSearch(doc, body, pattern, match);
+            var found = RunSearch(doc, search, Math.Max(1, GetInt(body, "max_results", 100000)),
+                Math.Max(1, GetDouble(body, "time_limit_s", 60)), out bool truncated, out string stopReason);
+            if (select) doc.CurrentSelection.CopyFrom(found);
+
+            return new
+            {
+                pattern,
+                match,
+                count = found.Count,
+                truncated,
+                stopReason,
+                sampled = Math.Min(limit, found.Count),
+                items = found.Take(limit).Select(it => new
+                {
+                    displayName = it.DisplayName,
+                    className = it.ClassDisplayName,
+                    file = ContainingFileName(it)
+                }).ToList(),
+                selected = select
+            };
+        }
+
+        public static object SelectionByName(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            string pattern = GetString(body, "pattern", null);
+            if (string.IsNullOrEmpty(pattern)) throw new ArgumentException("pattern is required");
+            string match = NameMatchMode(body);
+
+            Search search = NameSearch(doc, body, pattern, match);
+            var found = RunSearch(doc, search, Math.Max(1, GetInt(body, "max_results", 100000)),
+                Math.Max(1, GetDouble(body, "time_limit_s", 60)), out bool truncated, out string stopReason);
+            doc.CurrentSelection.CopyFrom(found);
+            return new { pattern, match, selected = found.Count, truncated, stopReason };
+        }
+
+        // The first item whose name is exactly this (for get_element_properties).
+        private static ModelItem FindItemByName(Document doc, string name)
+        {
+            Search search = NameSearch(doc, new Dictionary<string, object>(), name, "exact");
+            try { return search.FindFirst(doc, false); }
+            catch { return null; }
+        }
+
+        // ── Statistics ──────────────────────────────────────────────────────
+
+        public static object DocumentStatistics(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            ItemScope scope = ResolveScope(doc, body);
+            var walk = new ScopeWalk();
+            var counts = new Dictionary<string, int>();
+            int geometry = 0;
+            foreach (ModelItem mi in WalkScope(scope, Math.Max(1, GetInt(body, "max_items", 200000)),
+                         Math.Max(1, GetDouble(body, "time_limit_s", 30)), walk))
+            {
+                string key = mi.ClassDisplayName ?? "(none)";
+                counts.TryGetValue(key, out int c);
+                counts[key] = c + 1;
+                if (mi.HasGeometry) geometry++;
+            }
+            return new
+            {
+                scope = scope.Description,
+                total = walk.Scanned,
+                withGeometry = geometry,
+                truncated = walk.Truncated,
+                stopReason = walk.StopReason,
+                byClass = counts.OrderByDescending(kv => kv.Value)
+                                .Select(kv => new { className = kv.Key, count = kv.Value })
+                                .ToList()
+            };
+        }
+
         // ── Building the Search ─────────────────────────────────────────────
 
         private static SearchSpec BuildSearch(Document doc, Dictionary<string, object> body)

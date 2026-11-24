@@ -91,7 +91,7 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.6";
+        private const string Version = "2.4.7";
         private const int Routes = 79;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
@@ -285,7 +285,7 @@ namespace NavisworksMcpAddin
                 {
                     // Document
                     case "/document/info": return Handlers.DocumentInfo();
-                    case "/document/statistics": return Handlers.DocumentStatistics();
+                    case "/document/statistics": return Handlers.DocumentStatistics(body);
                     case "/document/tree": return Handlers.DocumentTree(body);
 
                     // File nodes
@@ -497,30 +497,6 @@ namespace NavisworksMcpAddin
                 isClear = doc.IsClear,
                 modelCount = doc.Models.Count,
                 models
-            };
-        }
-
-        public static object DocumentStatistics()
-        {
-            var doc = RequireDocument();
-
-            var counts = new Dictionary<string, int>();
-            int total = 0;
-
-            foreach (ModelItem mi in AllItems(doc))
-            {
-                total++;
-                string key = mi.ClassDisplayName ?? "(none)";
-                counts.TryGetValue(key, out int c);
-                counts[key] = c + 1;
-            }
-
-            return new
-            {
-                total,
-                byClass = counts.OrderByDescending(kv => kv.Value)
-                                .Select(kv => new { className = kv.Key, count = kv.Value })
-                                .ToList()
             };
         }
 
@@ -736,39 +712,6 @@ namespace NavisworksMcpAddin
             return new { name, selected = items.Count };
         }
 
-        public static object SelectionByName(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string pattern = GetString(body, "pattern", null)
-                ?? throw new ArgumentException("pattern is required");
-            bool exact = GetBool(body, "exact", false);
-
-            var found = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc))
-            {
-                string n = mi.DisplayName ?? "";
-                if (exact)
-                {
-                    if (string.Equals(n, pattern, StringComparison.OrdinalIgnoreCase))
-                        found.Add(mi);
-                }
-                else
-                {
-                    if (n.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
-                        found.Add(mi);
-                }
-            }
-            doc.CurrentSelection.CopyFrom(found);
-
-            return new { pattern, selected = found.Count };
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  SETS
-        // ════════════════════════════════════════════════════════════════════
-
-        // list_sets, create_selection_set, delete_set and the other set tools:
-        // SetHandlers.cs.
 
         public static object SetItems(Dictionary<string, object> body)
         {
@@ -821,42 +764,6 @@ namespace NavisworksMcpAddin
         //  FIND / PROPERTIES
         // ════════════════════════════════════════════════════════════════════
 
-        public static object ElementsFindByName(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-            string pattern = GetString(body, "pattern", null)
-                ?? throw new ArgumentException("pattern is required");
-            int limit = GetInt(body, "limit", 50);
-            bool select = GetBool(body, "select", false);
-
-            var found = new ModelItemCollection();
-            foreach (ModelItem mi in AllItems(doc))
-            {
-                string n = mi.DisplayName ?? "";
-                if (n.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    found.Add(mi);
-                }
-            }
-
-            if (select) doc.CurrentSelection.CopyFrom(found);
-
-            var sample = found.Take(limit).Select(it => new
-            {
-                displayName = it.DisplayName,
-                className = it.ClassDisplayName
-            }).ToList();
-
-            return new
-            {
-                pattern,
-                count = found.Count,
-                sampled = sample.Count,
-                items = sample,
-                selected = select
-            };
-        }
-
         public static object ElementsProperties(Dictionary<string, object> body)
         {
             var doc = RequireDocument();
@@ -866,14 +773,7 @@ namespace NavisworksMcpAddin
             string name = GetString(body, "name", null);
             if (!string.IsNullOrEmpty(name))
             {
-                foreach (ModelItem mi in AllItems(doc))
-                {
-                    if (string.Equals(mi.DisplayName, name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        target = mi;
-                        break;
-                    }
-                }
+                target = FindItemByName(doc, name);
                 if (target == null)
                 {
                     throw new InvalidOperationException($"item '{name}' not found");
@@ -1231,20 +1131,6 @@ namespace NavisworksMcpAddin
                 throw new InvalidOperationException("no active document");
             }
             return doc;
-        }
-
-        // Walks every model item in every model. Use sparingly — large
-        // federated models can have hundreds of thousands of items.
-        private static IEnumerable<ModelItem> AllItems(Document doc)
-        {
-            foreach (Model m in doc.Models)
-            {
-                if (m.RootItem == null) continue;
-                foreach (ModelItem mi in m.RootItem.DescendantsAndSelf)
-                {
-                    yield return mi;
-                }
-            }
         }
 
         // Resolve a SelectionSet (explicit or search-based) by name to its current items.

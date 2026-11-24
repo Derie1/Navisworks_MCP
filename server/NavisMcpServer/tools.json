@@ -21,10 +21,38 @@
     },
     {
       "name": "get_model_statistics",
-      "description": "Element counts grouped by class.",
+      "description": "Number of items per class (and how many have geometry) in the document, a set, the selection or some files. Walks the items: stops at max_items / time_limit_s (truncated=true) on large models.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all"
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Only inside this selection / search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only inside these sub-model files."
+          },
+          "max_items": {
+            "type": "integer",
+            "default": 200000
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 30
+          }
+        },
         "required": []
       }
     },
@@ -1066,20 +1094,57 @@
     },
     {
       "name": "find_items_by_name",
-      "description": "Quick search by element name (substring match). Walks every element of the model: slow on large federated models. To pick whole sub-models by file name use select_files / color_files instead.",
+      "description": "Find items by name (the Item/Name property, as in the Selection Tree), with Navisworks' own search: safe on large federated models. match: contains (default), exact or wildcard (* and ?); case is ignored. Stops at max_results / time_limit_s (truncated=true). To pick whole sub-models by file name use select_files / color_files.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "pattern": {
             "type": "string"
           },
+          "match": {
+            "type": "string",
+            "enum": [
+              "contains",
+              "exact",
+              "wildcard"
+            ],
+            "default": "contains"
+          },
           "limit": {
             "type": "integer",
-            "default": 50
+            "default": 50,
+            "description": "How many found items to list."
           },
           "select_results": {
             "type": "boolean",
             "default": true
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100000
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 60
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all"
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Only inside this selection / search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only inside these sub-model files."
           }
         },
         "required": [
@@ -1140,7 +1205,7 @@
     },
     {
       "name": "get_element_properties",
-      "description": "Return all property tabs and values for the first selected element (or by name).",
+      "description": "All property tabs and values of the first selected item, or of the first item with exactly this name (native search). Values are typed: lengths with the document unit, angles in degrees.",
       "inputSchema": {
         "type": "object",
         "properties": {

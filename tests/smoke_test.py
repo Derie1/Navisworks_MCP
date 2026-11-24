@@ -705,6 +705,61 @@ def export_checks(j, names):
           {"path": j("export", "z.csv"), "level": "leaves"}, expect_error=True)
 
 
+def name_checks(j, names):
+    """find_items_by_name / select by name / statistics on native search (2.4.7+), on Master.nwf.
+    Expected counts come from list_property_values of Item/Name."""
+    import fnmatch
+    check("open_document Master.nwf (names)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    a1 = names[0]
+    vals_r = call("/properties/values", {"category": "Item", "property": "Name", "max_values": 100000})
+    vals = {v["value"]: v["items"] for v in vals_r["values"]}
+    total = vals_r["itemsScanned"]
+
+    def count_where(pred):
+        return sum(c for v, c in vals.items() if pred(v))
+
+    n_exact = vals.get("E1_OKRB", 0)
+    n_cont = count_where(lambda v: "okrb" in v.lower())
+    n_wild = count_where(lambda v: fnmatch.fnmatchcase(v.lower(), "e?_okrb"))
+
+    def cnt(want):
+        return lambda r: (r["count"] == want and f"{r['count']}") or f"FAIL {r['count']} != {want}"
+
+    check("find_items_by_name exact E1_OKRB", "/elements/find-by-name", {"pattern": "e1_okrb", "match": "exact"},
+          cnt(n_exact))
+    check("find_items_by_name contains 'okrb'", "/elements/find-by-name", {"pattern": "okrb"}, cnt(n_cont))
+    check("find_items_by_name wildcard 'E?_OKRB'", "/elements/find-by-name", {"pattern": "E?_OKRB", "match": "wildcard"},
+          cnt(n_wild))
+    check("find_items_by_name old 'exact' flag", "/elements/find-by-name", {"pattern": "E1_OKRB", "exact": True},
+          cnt(n_exact))
+    check("find_items_by_name files=[a1]", "/elements/find-by-name", {"pattern": "okrb", "files": [a1]},
+          lambda r: (0 < r["count"] <= n_cont and all(i["file"] == a1 for i in r["items"]) and f"{r['count']}")
+                    or f"FAIL {r}")
+    check("find_items_by_name max_results=1 -> truncated", "/elements/find-by-name", {"pattern": "okrb", "max_results": 1},
+          lambda r: (r["count"] == 1 and r["truncated"]) or f"FAIL {r}")
+    check("find_items_by_name + select", "/elements/find-by-name", {"pattern": "okrb", "select": True}, cnt(n_cont))
+    check("selection = found", "/selection/get", None, lambda r: r["count"] == n_cont or f"FAIL {r['count']}")
+    check("select by name (route used by tests)", "/selection/by-name", {"pattern": "E1_OKRB", "exact": True},
+          lambda r: r["selected"] == n_exact or f"FAIL {r}")
+    check("find_items_by_name nothing -> 0", "/elements/find-by-name", {"pattern": "no-such-name-xyz"}, cnt(0))
+    check("find_items_by_name bad match -> error", "/elements/find-by-name", {"pattern": "x", "match": "regex"},
+          expect_error=True)
+    check("find_items_by_name no pattern -> error", "/elements/find-by-name", {}, expect_error=True)
+    check("get_element_properties by name (native)", "/elements/properties", {"name": "e1_okrb"},
+          lambda r: (r["displayName"] == "E1_OKRB" and len(r["categories"]) > 0) or f"FAIL {r.get('displayName')}")
+    check("get_element_properties unknown name -> error", "/elements/properties", {"name": "no-such-name-xyz"},
+          expect_error=True)
+
+    check("get_model_statistics", "/document/statistics", None,
+          lambda r: (r["total"] == total and 0 < r["withGeometry"] < total and not r["truncated"]
+                     and f"{r['total']} items, {r['withGeometry']} with geometry, {len(r['byClass'])} classes")
+                    or f"FAIL {r.get('total')} != {total}")
+    check("get_model_statistics files=[a1]", "/document/statistics", {"files": [a1]},
+          lambda r: (0 < r["total"] < total and r["scope"].startswith("files") and f"{r['total']}") or f"FAIL {r}")
+    check("get_model_statistics max_items=10 -> truncated", "/document/statistics", {"max_items": 10},
+          lambda r: (r["total"] == 10 and r["truncated"]) or f"FAIL {r}")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -875,6 +930,8 @@ def main():
         viewpoint_checks(j, names)
     if health.get("routes", 0) >= 79:
         export_checks(j, names)
+    if version >= (2, 4) and tuple(int(x) for x in str(health.get("version")).split(".")[:3]) >= (2, 4, 7):
+        name_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
