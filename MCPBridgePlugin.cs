@@ -91,7 +91,7 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.4.2";
+        private const string Version = "2.4.3";
         private const int Routes = 66;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
@@ -817,31 +817,6 @@ namespace NavisworksMcpAddin
             return new { name, count = current.Count };
         }
 
-        public static object SearchSetCreate(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-
-            string name = GetString(body, "name", null)
-                ?? throw new ArgumentException("name is required");
-            string category = GetString(body, "category", "Item");
-            string property = GetString(body, "property", "Name");
-            string op = GetString(body, "operator", "contains");
-            string value = GetString(body, "value", "");
-
-            var search = new Search();
-            search.Selection.SelectAll();
-            search.Locations = SearchLocations.DescendantsAndSelf;
-            search.SearchConditions.Add(BuildCondition(category, property, op, value));
-
-            // Modern Navisworks: a SelectionSet constructed from a Search IS a search set.
-            var searchSet = new SelectionSet(search) { DisplayName = name };
-            doc.SelectionSets.AddCopy(searchSet);
-
-            ModelItemCollection matches = search.FindAll(doc, false);
-
-            return new { name, matches = matches.Count };
-        }
-
         public static object SetDelete(Dictionary<string, object> body)
         {
             var doc = RequireDocument();
@@ -906,41 +881,6 @@ namespace NavisworksMcpAddin
         // ════════════════════════════════════════════════════════════════════
         //  FIND / PROPERTIES
         // ════════════════════════════════════════════════════════════════════
-
-        public static object ElementsFind(Dictionary<string, object> body)
-        {
-            var doc = RequireDocument();
-
-            string category = GetString(body, "category", "Item");
-            string property = GetString(body, "property", "Name");
-            string op = GetString(body, "operator", "contains");
-            string value = GetString(body, "value", "");
-            int limit = GetInt(body, "limit", 50);
-            bool select = GetBool(body, "select", false);
-
-            var search = new Search();
-            search.Selection.SelectAll();
-            search.Locations = SearchLocations.DescendantsAndSelf;
-            search.SearchConditions.Add(BuildCondition(category, property, op, value));
-
-            ModelItemCollection results = search.FindAll(doc, false);
-
-            if (select) doc.CurrentSelection.CopyFrom(results);
-
-            var sample = results.Take(limit).Select(it => new
-            {
-                displayName = it.DisplayName,
-                className = it.ClassDisplayName
-            }).ToList();
-
-            return new
-            {
-                count = results.Count,
-                sampled = sample.Count,
-                items = sample,
-                selected = select
-            };
-        }
 
         public static object ElementsFindByName(Dictionary<string, object> body)
         {
@@ -1502,39 +1442,6 @@ namespace NavisworksMcpAddin
                 }
             }
             return null;
-        }
-
-        private static SearchCondition BuildCondition(
-            string category, string property, string op, string value)
-        {
-            // Build "<category>/<property> <op> <value>" condition using the
-            // display names that the user sees in the Properties panel.
-            SearchCondition cond = SearchCondition.HasPropertyByDisplayName(category, property);
-
-            // 2027 SDK: SearchCondition.WildcardValue is gone. EqualValue will
-            // interpret '*' as a wildcard inside the comparison string for
-            // string-typed properties, which covers contains/startsWith/endsWith.
-            switch ((op ?? "").Trim().ToLowerInvariant())
-            {
-                case "equals":
-                case "=":
-                    cond = cond.EqualValue(VariantData.FromDisplayString(value));
-                    break;
-                case "contains":
-                case "~":
-                    cond = cond.EqualValue(VariantData.FromDisplayString("*" + value + "*"));
-                    break;
-                case "startswith":
-                    cond = cond.EqualValue(VariantData.FromDisplayString(value + "*"));
-                    break;
-                case "endswith":
-                    cond = cond.EqualValue(VariantData.FromDisplayString("*" + value));
-                    break;
-                default:
-                    throw new ArgumentException(
-                        $"unknown operator '{op}'. Use equals, contains, startsWith, endsWith.");
-            }
-            return cond;
         }
 
         // ── Clash helpers ───────────────────────────────────────────────────

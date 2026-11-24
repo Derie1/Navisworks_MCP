@@ -372,38 +372,176 @@
     },
     {
       "name": "create_search_set",
-      "description": "Create a saved search with a single property condition. Operators: equals, contains, startsWith, endsWith.",
+      "description": "Save a search set (re-evaluated whenever it is used) with the same conditions as find_items: AND conditions, any_of OR-groups, all operators, optional scope. Returns the current number of matches.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Name of the search set."
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                },
+                "property": {
+                  "type": "string",
+                  "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "equals",
+                    "not_equals",
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "contains",
+                    "wildcard",
+                    "starts_with",
+                    "ends_with",
+                    "has_property",
+                    "not_has_property",
+                    "has_category",
+                    "not_has_category"
+                  ],
+                  "default": "equals"
+                },
+                "value": {
+                  "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                },
+                "negate": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Invert this condition."
+                }
+              },
+              "required": [
+                "category"
+              ]
+            },
+            "description": "Conditions that must ALL hold (AND)."
+          },
+          "any_of": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                  },
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "equals",
+                      "not_equals",
+                      ">",
+                      ">=",
+                      "<",
+                      "<=",
+                      "contains",
+                      "wildcard",
+                      "starts_with",
+                      "ends_with",
+                      "has_property",
+                      "not_has_property",
+                      "has_category",
+                      "not_has_category"
+                    ],
+                    "default": "equals"
+                  },
+                  "value": {
+                    "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                  },
+                  "negate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Invert this condition."
+                  }
+                },
+                "required": [
+                  "category"
+                ]
+              }
+            },
+            "description": "OR-groups: an item matches if all conditions of ANY group hold (plus all of 'conditions'). E.g. [[Type=IfcWall],[Type=IfcSlab]]."
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "default": true,
+            "description": "Compare text ignoring upper/lower case."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all",
+            "description": "Search the whole document or only inside the current selection."
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Search only inside this saved selection/search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Search only inside these sub-model files."
+          },
+          "prune_below_match": {
+            "type": "boolean",
+            "default": true,
+            "description": "Do not look inside an item that already matched (Navisworks default)."
           },
           "category": {
             "type": "string",
-            "default": "Item"
+            "description": "Old single-condition form: category (default Item)."
           },
           "property": {
             "type": "string",
-            "default": "Name"
+            "description": "Old single-condition form: property (default Name)."
           },
           "operator": {
             "type": "string",
-            "enum": [
-              "equals",
-              "contains",
-              "startsWith",
-              "endsWith"
-            ],
-            "default": "contains"
+            "description": "Old single-condition form: operator (default contains)."
           },
           "value": {
-            "type": "string"
+            "description": "Old single-condition form: value."
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100000,
+            "description": "Stop after this many matches (truncated=true)."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 60,
+            "description": "Stop after this many seconds (truncated=true)."
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Overwrite an existing set with this name."
           }
         },
         "required": [
-          "name",
-          "value"
+          "name"
         ]
       }
     },
@@ -439,43 +577,185 @@
     },
     {
       "name": "find_items",
-      "description": "Single-condition property search returning matching elements.",
+      "description": "Find items by property conditions, like Navisworks' Find Items: several conditions (AND), OR-groups (any_of), operators equals / not_equals / > / >= / < / <= / contains / wildcard / has_property... Values are matched in the property's own type (numbers, lengths, angles, yes/no, dates); decimals are compared with a small tolerance. Get exact category/property names from list_property_names and values from list_property_values. Can select the result or save it as a search set. Native search, safe on large models; stops at max_results / time_limit_s.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                },
+                "property": {
+                  "type": "string",
+                  "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "equals",
+                    "not_equals",
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "contains",
+                    "wildcard",
+                    "starts_with",
+                    "ends_with",
+                    "has_property",
+                    "not_has_property",
+                    "has_category",
+                    "not_has_category"
+                  ],
+                  "default": "equals"
+                },
+                "value": {
+                  "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                },
+                "negate": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Invert this condition."
+                }
+              },
+              "required": [
+                "category"
+              ]
+            },
+            "description": "Conditions that must ALL hold (AND)."
+          },
+          "any_of": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "description": "Property category (display or internal name), e.g. 'Item', 'Element', 'IFC'. See list_property_names."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Property name, e.g. 'Type', 'Level', 'Elevation'. Not needed for has_category / not_has_category."
+                  },
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "equals",
+                      "not_equals",
+                      ">",
+                      ">=",
+                      "<",
+                      "<=",
+                      "contains",
+                      "wildcard",
+                      "starts_with",
+                      "ends_with",
+                      "has_property",
+                      "not_has_property",
+                      "has_category",
+                      "not_has_category"
+                    ],
+                    "default": "equals"
+                  },
+                  "value": {
+                    "description": "Value to compare with, as list_property_values shows it: text, a number (lengths in document units, '-0.07 m' is fine), degrees for angles, yes/no, yyyy-MM-dd for dates. wildcard uses * and ?."
+                  },
+                  "negate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Invert this condition."
+                  }
+                },
+                "required": [
+                  "category"
+                ]
+              }
+            },
+            "description": "OR-groups: an item matches if all conditions of ANY group hold (plus all of 'conditions'). E.g. [[Type=IfcWall],[Type=IfcSlab]]."
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "default": true,
+            "description": "Compare text ignoring upper/lower case."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selection"
+            ],
+            "default": "all",
+            "description": "Search the whole document or only inside the current selection."
+          },
+          "set_name": {
+            "type": "string",
+            "description": "Search only inside this saved selection/search set."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Search only inside these sub-model files."
+          },
+          "prune_below_match": {
+            "type": "boolean",
+            "default": true,
+            "description": "Do not look inside an item that already matched (Navisworks default)."
+          },
           "category": {
             "type": "string",
-            "default": "Item"
+            "description": "Old single-condition form: category (default Item)."
           },
           "property": {
             "type": "string",
-            "default": "Name"
+            "description": "Old single-condition form: property (default Name)."
           },
           "operator": {
             "type": "string",
-            "enum": [
-              "equals",
-              "contains",
-              "startsWith",
-              "endsWith"
-            ],
-            "default": "contains"
+            "description": "Old single-condition form: operator (default contains)."
           },
           "value": {
-            "type": "string"
+            "description": "Old single-condition form: value."
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 100000,
+            "description": "Stop after this many matches (truncated=true)."
+          },
+          "time_limit_s": {
+            "type": "number",
+            "default": 60,
+            "description": "Stop after this many seconds (truncated=true)."
           },
           "limit": {
             "type": "integer",
-            "default": 50
+            "default": 50,
+            "description": "How many found items to list in the answer."
           },
           "select_results": {
             "type": "boolean",
-            "default": false
+            "default": false,
+            "description": "Select the found items."
+          },
+          "save_as_search_set": {
+            "type": "string",
+            "description": "Also save these conditions as a search set with this name."
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Overwrite an existing set with the save_as_search_set name."
           }
         },
-        "required": [
-          "value"
-        ]
+        "required": []
       }
     },
     {

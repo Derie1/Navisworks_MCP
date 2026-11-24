@@ -18,6 +18,7 @@ routes on the master. Prints one line per check and a summary.
 import base64
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -267,6 +268,107 @@ def property_checks(j, names):
         print("[SKIP] no numeric property in the test files")
 
 
+def num(text):
+    m = re.match(r"\s*([-+]?\d+(?:\.\d+)?)", text or "")
+    return float(m.group(1)) if m else None
+
+
+def search_checks(j, names):
+    """find_items with several conditions, search sets (2.4.3+), on Master.nwf.
+    Expected counts come from list_property_values over the same model."""
+    check("open_document Master.nwf (search)", "/model/open", {"path": j("Master.nwf"), "discard_changes": True})
+    types_r = call("/properties/values", {"category": "Item", "property": "Type"})
+    types = {v["value"]: v["items"] for v in types_r["values"]}
+    elev_r = call("/properties/values", {"category": "Element", "property": "Elevation"})
+    elev = {v["value"]: v["items"] for v in elev_r["values"]}
+    n_cov, n_map = types.get("IfcCovering", 0), types.get("IfcMappedItem", 0)
+    n_proxy = types.get("IfcBuildingElementProxy", 0)
+    flat = {"prune_below_match": False}
+
+    def cnt(want):
+        return lambda r: (r["count"] == want and f"{r['count']}  [{'; '.join(r['conditions'])}]") or f"FAIL {r['count']} != {want}"
+
+    def type_is(v, op="equals"):
+        return {"category": "Item", "property": "Type", "operator": op, "value": v}
+
+    check("find Type = IfcCovering", "/elements/find", dict(flat, conditions=[type_is("IfcCovering")]), cnt(n_cov))
+    check("find Type = ifccovering (ignore case)", "/elements/find", dict(flat, conditions=[type_is("ifccovering")]), cnt(n_cov))
+    check("find Type = ifccovering, ignore_case=false -> 0", "/elements/find",
+          dict(flat, conditions=[type_is("ifccovering")], ignore_case=False), cnt(0))
+    check("find Type contains 'covering'", "/elements/find", dict(flat, conditions=[type_is("covering", "contains")]),
+          lambda r: (r["count"] >= n_cov and f"{r['count']}") or f"FAIL {r['count']} < {n_cov}")
+    check("find Type wildcard 'Ifc*Proxy'", "/elements/find", dict(flat, conditions=[type_is("Ifc*Proxy", "wildcard")]),
+          cnt(n_proxy))
+    check("find any_of IfcCovering OR IfcMappedItem", "/elements/find",
+          dict(flat, any_of=[[type_is("IfcCovering")], [type_is("IfcMappedItem")]]), cnt(n_cov + n_map))
+    check("find Type != IfcCovering AND has Type", "/elements/find",
+          dict(flat, conditions=[type_is("IfcCovering", "not_equals")]),
+          cnt(types_r["itemsWithProperty"] - n_cov))
+    check("find negate (NOT Type = IfcCovering) inside files=[a1]", "/elements/find",
+          dict(flat, files=[names[0]], conditions=[dict(type_is("IfcCovering"), negate=True)]),
+          lambda r: (r["count"] > 0 and r["scope"].startswith("files") and f"{r['count']}") or f"FAIL {r}")
+
+    with_elev = elev_r["itemsWithProperty"]
+    n_007 = elev.get("-0.07 m", 0)
+    n_pos = sum(c for v, c in elev.items() if (num(v) or 0) > 0)
+    check("find Elevation = -0.07 (length, tolerance)", "/elements/find",
+          dict(flat, conditions=[{"category": "Element", "property": "Elevation", "operator": "=", "value": -0.07}]),
+          cnt(n_007))
+    check("find Elevation = '-0.07 m' (with unit)", "/elements/find",
+          dict(flat, conditions=[{"category": "Element", "property": "Elevation", "value": "-0.07 m"}]), cnt(n_007))
+    check("find Elevation != -0.07", "/elements/find",
+          dict(flat, conditions=[{"category": "Element", "property": "Elevation", "operator": "!=", "value": -0.07}]),
+          cnt(with_elev - n_007))
+    check("find Elevation > 0", "/elements/find",
+          dict(flat, conditions=[{"category": "Element", "property": "Elevation", "operator": ">", "value": 0}]), cnt(n_pos))
+    check("find has_property Element/Elevation", "/elements/find",
+          dict(flat, conditions=[{"category": "Element", "property": "Elevation", "operator": "has_property"}]),
+          cnt(with_elev))
+    check("find lower-case names element/elevation", "/elements/find",
+          dict(flat, conditions=[{"category": "element", "property": "elevation", "operator": "has_property"}]),
+          cnt(with_elev))
+    check("find unknown property -> 0 + warning", "/elements/find",
+          {"conditions": [{"category": "Item", "property": "No such", "value": "x"}]},
+          lambda r: (r["count"] == 0 and r["warnings"] and r["warnings"][0]) or f"FAIL {r}")
+    check("find contains on a length -> error", "/elements/find",
+          {"conditions": [{"category": "Element", "property": "Elevation", "operator": "contains", "value": "7"}]},
+          expect_error=True)
+    check("find unknown operator -> error", "/elements/find", {"conditions": [type_is("x", "almost")]}, expect_error=True)
+    check("find no value -> error", "/elements/find",
+          {"conditions": [{"category": "Item", "property": "Type", "operator": "equals"}]}, expect_error=True)
+    check("find nothing given -> error", "/elements/find", {}, expect_error=True)
+    check("find old single-condition call", "/elements/find",
+          {"category": "Item", "property": "Type", "operator": "contains", "value": "Covering", "prune_below_match": False},
+          lambda r: (r["count"] >= n_cov and f"{r['count']}") or f"FAIL {r}")
+    check("find max_results=5 -> truncated", "/elements/find", dict(flat, conditions=[type_is("Mesh")], max_results=5),
+          lambda r: (r["count"] == 5 and r["truncated"]) or f"FAIL {r}")
+
+    check("find + select_results", "/elements/find", dict(flat, conditions=[type_is("IfcCovering")], select=True), cnt(n_cov))
+    check("selection = found items", "/selection/get", None, lambda r: r["count"] == n_cov or f"FAIL {r['count']}")
+    check("find + save_as_search_set 'MCP coverings'", "/elements/find",
+          dict(flat, conditions=[type_is("IfcCovering")], save_as_search_set="MCP coverings"),
+          lambda r: (r["searchSet"]["name"] == "MCP coverings" and not r["searchSet"]["replaced"]) or f"FAIL {r}")
+    check("execute_search_set 'MCP coverings'", "/sets/search/run", {"name": "MCP coverings"},
+          lambda r: r["matches"] == n_cov or f"FAIL {r}")
+    check("create_search_set same name -> error", "/sets/search/create",
+          {"name": "MCP coverings", "conditions": [type_is("IfcMappedItem")]}, expect_error=True)
+    check("create_search_set replace=true", "/sets/search/create",
+          dict(flat, name="MCP coverings", conditions=[type_is("IfcMappedItem")], replace=True),
+          lambda r: (r["matches"] == n_map and r["saved"]["replaced"]) or f"FAIL {r}")
+    check("create_search_set any_of + Elevation", "/sets/search/create",
+          dict(flat, name="MCP or-set", any_of=[[type_is("IfcCovering")], [type_is("IfcMappedItem")]]),
+          lambda r: r["matches"] == n_cov + n_map or f"FAIL {r}")
+    check("create_search_set old call", "/sets/search/create",
+          {"name": "MCP old", "category": "Item", "property": "Type", "operator": "equals", "value": "IfcCovering"},
+          lambda r: r["matches"] > 0 or f"FAIL {r}")
+    check("save_document Master_search.nwf", "/model/save", {"path": j("Master_search.nwf")})
+    check("open_document Master_search.nwf", "/model/open", {"path": j("Master_search.nwf"), "discard_changes": True})
+    check("OR search set survives save + reopen", "/sets/search/run", {"name": "MCP or-set"},
+          lambda r: r["matches"] == n_cov + n_map or f"FAIL {r}")
+    check("replaced search set survives too", "/sets/search/run", {"name": "MCP coverings"},
+          lambda r: r["matches"] == n_map or f"FAIL {r}")
+
+
 def main():
     if len(sys.argv) != 6:
         sys.exit(__doc__)
@@ -429,6 +531,8 @@ def main():
         visibility_checks(j, names)
     if "routes" in health and health["routes"] >= 66:
         property_checks(j, names)
+    if version >= (2, 4) and str(health.get("version")) not in ("2.4.0", "2.4.1", "2.4.2"):
+        search_checks(j, names)
     transform_checks(j, names)
 
     passed = sum(ok for _, ok in results)
