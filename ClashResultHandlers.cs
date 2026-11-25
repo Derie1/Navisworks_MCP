@@ -235,6 +235,100 @@ namespace NavisworksMcpAddin
             };
         }
 
+        // Moves every ungrouped result (a ClashResult directly under the test)
+        // of one test, or of all tests, into one group per test. Target group:
+        // the group called group_name; else the test's only group (when
+        // use_single_group); else a new group called group_name.
+        // TestsMove keeps the results themselves (GUID, status, comments,
+        // history) — unlike add_clashes_to_group, which re-creates copies.
+        public static object ClashGroupUngrouped(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            DocumentClash dc = doc.GetClash();
+            string only = GetString(body, "test_name", null);
+            string groupName = (GetString(body, "group_name", null) ?? "New Group").Trim();
+            if (groupName.Length == 0) throw new ArgumentException("group_name cannot be empty");
+            bool useSingle = GetBool(body, "use_single_group", true);
+            bool dryRun = GetBool(body, "dry_run", false);
+
+            var testRefs = new List<SavedItemReference>();
+            foreach (ClashTest t in EnumerateClashTests(dc.TestsData.Value.TestsRoot))
+            {
+                if (only == null || string.Equals(t.DisplayName, only, StringComparison.OrdinalIgnoreCase))
+                {
+                    testRefs.Add(dc.TestsData.CreateReference(t));
+                }
+            }
+            if (only != null && testRefs.Count == 0) throw new InvalidOperationException($"clash test '{only}' not found");
+
+            var details = new List<object>();
+            int totalMoved = 0, testsChanged = 0, groupsCreated = 0;
+            using (Transaction tx = dryRun ? null : doc.BeginTransaction("Group ungrouped clashes"))
+            {
+                foreach (SavedItemReference testRef in testRefs)
+                {
+                    var test = (ClashTest)dc.TestsData.ResolveReference(testRef);
+                    string testName = test.DisplayName;
+
+                    var ungrouped = new List<int>();   // indices in test.Children
+                    var groups = new List<ClashResultGroup>();
+                    int i = 0;
+                    foreach (SavedItem child in test.Children)
+                    {
+                        if (child is ClashResult) ungrouped.Add(i);
+                        else if (child is ClashResultGroup g) groups.Add(g);
+                        i++;
+                    }
+                    if (ungrouped.Count == 0) continue;
+
+                    ClashResultGroup target = groups.FirstOrDefault(g =>
+                        string.Equals(g.DisplayName, groupName, StringComparison.OrdinalIgnoreCase));
+                    if (target == null && useSingle && groups.Count == 1) target = groups[0];
+                    bool created = target == null;
+                    string targetName = created ? groupName : target.DisplayName;
+
+                    if (!dryRun)
+                    {
+                        if (created)
+                        {
+                            dc.TestsData.TestsAddCopy(test, new ClashResultGroup { DisplayName = groupName });
+                            test = (ClashTest)dc.TestsData.ResolveReference(testRef);
+                            target = test.Children.OfType<ClashResultGroup>().Last(g =>
+                                string.Equals(g.DisplayName, groupName, StringComparison.OrdinalIgnoreCase));
+                        }
+                        SavedItemReference groupRef = dc.TestsData.CreateReference(target);
+                        int insertAt = target.Children.Count;
+
+                        // Highest index first: the indices still to move stay
+                        // valid, and inserting each at the same position keeps
+                        // the original order inside the group. The group itself
+                        // is not addressed by index, so its shifting is harmless.
+                        for (int k = ungrouped.Count - 1; k >= 0; k--)
+                        {
+                            var freshTest = (ClashTest)dc.TestsData.ResolveReference(testRef);
+                            var freshGroup = (ClashResultGroup)dc.TestsData.ResolveReference(groupRef);
+                            dc.TestsData.TestsMove(freshTest, ungrouped[k], freshGroup, insertAt);
+                        }
+                    }
+
+                    if (created) groupsCreated++;
+                    totalMoved += ungrouped.Count;
+                    testsChanged++;
+                    details.Add(new { test = testName, group = targetName, created, moved = ungrouped.Count });
+                }
+                tx?.Commit();
+            }
+
+            return new
+            {
+                dry_run = dryRun,
+                tests = testsChanged,
+                moved = totalMoved,
+                groups_created = groupsCreated,
+                details
+            };
+        }
+
         public static object ClashReport(Dictionary<string, object> body)
         {
             var doc = RequireDocument();

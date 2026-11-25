@@ -33,7 +33,8 @@
 //  Clash           (11)  /clash/{list,create,set-selections,run,results,
 //                                delete}, /clash/group/{create,list,delete,
 //                                add-clashes,set-status}   ClashGroupHandlers.cs
-//  Clash results    (7)  /clash/{summary,auto-group,report},
+//  Clash results    (8)  /clash/{summary,auto-group,report},
+//                        /clash/group/ungrouped,
 //                        /clash/result/{status,assign,comment,zoom}
 //                                                          ClashResultHandlers.cs
 //  Viewpoints      (11)  /viewpoints/{list,save,goto,update,delete,current,
@@ -99,7 +100,7 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.5.0";
+        private const string Version = "2.5.1";
         private const int Routes = 84;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
@@ -385,6 +386,7 @@ namespace NavisworksMcpAddin
                     case "/clash/result/comment": return Handlers.ClashResultComment(body);
                     case "/clash/result/zoom": return Handlers.ClashResultZoom(body);
                     case "/clash/auto-group": return Handlers.ClashAutoGroup(body);
+                    case "/clash/group/ungrouped": return Handlers.ClashGroupUngrouped(body);
                     case "/clash/report": return Handlers.ClashReport(body);
 
                     // Viewpoints

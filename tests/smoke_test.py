@@ -914,6 +914,10 @@ def main():
         check("auto_group_clashes by level (nothing left)", "/clash/auto-group",
               {"test_name": "MCP smoke", "group_by": "level"},
               lambda r: f"{r['groups']} groups, {r['leftUngrouped']} left")
+        if tuple(int(x) for x in str(health.get("version")).split(".")[:3]) >= (2, 5, 1):
+            check("group_ungrouped_clashes dry run (nothing left)", "/clash/group/ungrouped",
+                  {"test_name": "MCP smoke", "dry_run": True},
+                  lambda r: r["moved"] == 0 or f"FAIL {r}")
     else:
         print("[SKIP] no clashes found between the two files: result-level checks skipped")
     check("export_clash_report csv", "/clash/report", {"path": j("report.csv")},

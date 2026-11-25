@@ -2367,6 +2367,32 @@
       }
     },
     {
+      "name": "group_ungrouped_clashes",
+      "description": "Move every ungrouped result of a clash test (or of all tests when test_name is omitted) into a clash group, one group per test. Target: the group called group_name if the test has it; else the test's only group (use_single_group); else a new group called group_name is created. Results are moved, not copied: status, comments and history stay. dry_run reports what would happen without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string",
+            "description": "Omit for all tests."
+          },
+          "group_name": {
+            "type": "string",
+            "default": "New Group"
+          },
+          "use_single_group": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the test has exactly one group and none is called group_name, use that group."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    {
       "name": "auto_group_clashes",
       "description": "Group all ungrouped results of a top-level clash test in one go. group_by: 'model' (file of item A/B, default both: 'A.ifc × B.ifc'), 'level' (nearest storey/level node, else Element/Level property), or 'property' (category + property display names, read from the item or its ancestors). side: a, b or both.",
       "inputSchema": {
@@ -2712,6 +2738,10 @@
     },
     "auto_group_clashes": {
       "route": "/clash/auto-group",
+      "long": true
+    },
+    "group_ungrouped_clashes": {
+      "route": "/clash/group/ungrouped",
       "long": true
     },
     "export_clash_report": {
