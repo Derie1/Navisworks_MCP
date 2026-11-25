@@ -33,8 +33,8 @@
 //  Clash           (11)  /clash/{list,create,set-selections,run,results,
 //                                delete}, /clash/group/{create,list,delete,
 //                                add-clashes,set-status}   ClashGroupHandlers.cs
-//  Clash results    (8)  /clash/{summary,auto-group,report},
-//                        /clash/group/ungrouped,
+//  Clash results    (9)  /clash/{summary,auto-group,report},
+//                        /clash/group/ungrouped, /clash/compact,
 //                        /clash/result/{status,assign,comment,zoom}
 //                                                          ClashResultHandlers.cs
 //  Viewpoints      (11)  /viewpoints/{list,save,goto,update,delete,current,
@@ -100,8 +100,8 @@ namespace NavisworksMcpAddin
 
         // ── Configuration ───────────────────────────────────────────────────
         private const int Port = 8765;
-        private const string Version = "2.5.1";
-        private const int Routes = 84;
+        private const string Version = "2.5.2";
+        private const int Routes = 86;
         private static readonly string LogPath =
             Path.Combine(Path.GetTempPath(), "navisworks_mcp_addin.log");
 
@@ -278,7 +278,7 @@ namespace NavisworksMcpAddin
                 // "product" lets the MCP server check that it reached this bridge
                 // and not some other program listening on the port. "document"
                 // and "pid" tell which Navisworks window answers when several run.
-                bool busy = !RefreshDocumentInfo(1500);
+                bool busy = Handlers.ClashRunPending || !RefreshDocumentInfo(1500);
                 return new
                 {
                     ok = true,
@@ -291,6 +291,15 @@ namespace NavisworksMcpAddin
                     documentOpen = _docOpen,
                     uiBusy = busy
                 };
+            }
+
+            // A run_clash_test without wait is queued on the UI thread; requests
+            // that arrive before it ends would run in between (Navisworks pumps
+            // messages) and could replace the document under it.
+            if (Handlers.ClashRunPending)
+            {
+                throw new InvalidOperationException(
+                    "a clash run started by run_clash_test is still going; wait until health_check shows uiBusy=false");
             }
 
             // Everything else marshals onto the Navisworks UI thread.
@@ -387,6 +396,7 @@ namespace NavisworksMcpAddin
                     case "/clash/result/zoom": return Handlers.ClashResultZoom(body);
                     case "/clash/auto-group": return Handlers.ClashAutoGroup(body);
                     case "/clash/group/ungrouped": return Handlers.ClashGroupUngrouped(body);
+                    case "/clash/compact": return Handlers.ClashCompact(body);
                     case "/clash/report": return Handlers.ClashReport(body);
 
                     // Viewpoints
@@ -1037,55 +1047,80 @@ namespace NavisworksMcpAddin
             };
         }
 
+        // Runs (updates) one test, a list of tests, or all tests. Tests are found
+        // at any depth (folders too). wait=false (default) queues the run on the
+        // UI thread and answers at once: a long run would otherwise outlive the
+        // MCP client's request timeout. Follow it with health_check (uiBusy) and
+        // get_clash_summary (lastRun).
+        // True from a no-wait run_clash_test until that run ends: Dispatch then
+        // refuses every route but /health.
+        internal static volatile bool ClashRunPending;
+
         public static object ClashRun(Dictionary<string, object> body)
         {
             var doc = RequireDocument();
-            string name = GetString(body, "name", null);
-
             DocumentClash dc = doc.GetClash();
-            var ran = new List<string>();
+            var names = GetStringList(body, "names");
+            string one = GetString(body, "name", null);
+            if (!string.IsNullOrEmpty(one)) names.Insert(0, one);
+            bool wait = GetBool(body, "wait", false);
 
-            if (string.IsNullOrEmpty(name))
+            bool all = names.Count == 0;
+            var refs = new List<SavedItemReference>();
+            var found = new List<string>();
+            if (!all)
             {
-                // Use the dedicated API method — avoids the WeakRef disposal
-                // problem we'd hit by iterating + calling TestsRunTest per test.
-                dc.TestsData.TestsRunAllTests();
-
-                // Re-iterate to gather names for the response.
-                foreach (SavedItem si in dc.TestsData.Value.TestsRoot.Children)
+                var missing = new List<string>();
+                foreach (string n in names.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    if (si is ClashTest t) ran.Add(t.DisplayName);
+                    ClashTest t = FindClashTest(dc, n);
+                    if (t == null) { missing.Add(n); continue; }
+                    refs.Add(dc.TestsData.CreateReference(t));
+                    found.Add(t.DisplayName);
+                }
+                if (missing.Count > 0)
+                {
+                    throw new InvalidOperationException("clash test(s) not found: " + string.Join(", ", missing));
                 }
             }
             else
             {
-                // Capture a stable SavedItemReference during iteration, then re-resolve
-                // for a fresh handle just before calling TestsRunTest. ClashTest objects
-                // obtained directly from Children are weak NativeHandles that go stale
-                // after the iteration completes (or sometimes immediately).
-                SavedItemReference targetRef = null;
-                foreach (SavedItem si in dc.TestsData.Value.TestsRoot.Children)
-                {
-                    if (si is ClashTest t &&
-                        string.Equals(t.DisplayName, name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetRef = dc.TestsData.CreateReference(t);
-                        break;
-                    }
-                }
-                if (targetRef == null)
-                {
-                    throw new InvalidOperationException($"clash test '{name}' not found");
-                }
-
-                // Resolve fresh and run immediately. Don't access target.DisplayName
-                // afterward — TestsRunTest may invalidate its argument.
-                var fresh = (ClashTest)dc.TestsData.ResolveReference(targetRef);
-                dc.TestsData.TestsRunTest(fresh);
-                ran.Add(name);
+                found.AddRange(EnumerateClashTests(dc.TestsData.Value.TestsRoot).Select(t => t.DisplayName));
             }
 
-            return new { ran };
+            // Re-resolve every test just before running it: ClashTest handles
+            // taken from Children go stale after the iteration.
+            Action run = () =>
+            {
+                var d = RequireDocument().GetClash();
+                if (all) { d.TestsData.TestsRunAllTests(); return; }
+                foreach (SavedItemReference r in refs)
+                {
+                    d.TestsData.TestsRunTest((ClashTest)d.TestsData.ResolveReference(r));
+                }
+            };
+
+            // This handler already runs on the UI thread, so its current
+            // SynchronizationContext queues the run behind this request.
+            var ui = SynchronizationContext.Current;
+            if (wait || ui == null)
+            {
+                run();
+                return new { ran = found, finished = true };
+            }
+            ClashRunPending = true;
+            ui.Post(_ =>
+            {
+                try { run(); MCPBridgePlugin.Log($"clash run finished: {found.Count} test(s)"); }
+                catch (Exception ex) { MCPBridgePlugin.Log($"✗ clash run: {ex.GetType().Name}: {ex.Message}"); }
+                finally { ClashRunPending = false; }
+            }, null);
+            return new
+            {
+                ran = found,
+                finished = false,
+                note = "running in Navisworks; health_check shows uiBusy=false when done, get_clash_summary shows lastRun"
+            };
         }
 
         public static object ClashResults(Dictionary<string, object> body)

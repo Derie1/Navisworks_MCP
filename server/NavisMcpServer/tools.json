@@ -204,15 +204,47 @@
     },
     {
       "name": "run_clash_test",
-      "description": "Run a clash test by name, or all tests if name omitted.",
+      "description": "Run (update) clash tests: test_name, a list in test_names, or all tests when both are omitted; tests inside folders are found too. By default the call starts the run and answers at once (finished: false), because a long run outlives the request timeout: until it ends Navisworks refuses every other command, so wait with health_check until uiBusy is false, then read get_clash_summary (lastRun, Resolved counts). wait: true blocks until done (short tests only).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "test_name": {
             "type": "string"
+          },
+          "test_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wait": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": []
+      }
+    },
+    {
+      "name": "compact_clash_tests",
+      "description": "Compact clash tests (Navisworks 'Compact'): remove all Resolved results, also those inside groups. test_name, a list in test_names, or all tests when both are omitted. Per test: results before / removed / after and how many groups are left empty. dry_run only reports. Run the tests first (run_clash_test) so fixed clashes are marked Resolved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_name": {
+            "type": "string"
+          },
+          "test_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false
+          }
+        }
       }
     },
     {
@@ -2499,7 +2531,8 @@
     "run_clash_test": {
       "route": "/clash/run",
       "rename": {
-        "test_name": "name"
+        "test_name": "name",
+        "test_names": "names"
       },
       "long": true
     },
@@ -2738,6 +2771,10 @@
     },
     "auto_group_clashes": {
       "route": "/clash/auto-group",
+      "long": true
+    },
+    "compact_clash_tests": {
+      "route": "/clash/compact",
       "long": true
     },
     "group_ungrouped_clashes": {

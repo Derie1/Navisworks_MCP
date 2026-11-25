@@ -880,7 +880,7 @@ def main():
     check("selection set SetB", "/sets/selection/create", {"name": "MCP SetB"})
     check("create clash test", "/clash/create",
           {"name": "MCP smoke", "type": "Hard", "tolerance": 0.01, "selectionA": "MCP SetA", "selectionB": "MCP SetB"})
-    check("run clash test", "/clash/run", {"name": "MCP smoke"})
+    check("run clash test", "/clash/run", {"name": "MCP smoke", "wait": True})
     check("get_clash_summary", "/clash/summary", {"test_name": "MCP smoke"},
           lambda r: json.dumps(r["tests"][0]["byStatus"]) + f" total={r['tests'][0]['total']}")
     res = check("get_clash_results", "/clash/results", {"name": "MCP smoke", "limit": 5},
@@ -918,6 +918,21 @@ def main():
             check("group_ungrouped_clashes dry run (nothing left)", "/clash/group/ungrouped",
                   {"test_name": "MCP smoke", "dry_run": True},
                   lambda r: r["moved"] == 0 or f"FAIL {r}")
+        if tuple(int(x) for x in str(health.get("version")).split(".")[:3]) >= (2, 5, 2):
+            check("compact_clash_tests dry run", "/clash/compact",
+                  {"test_name": "MCP smoke", "dry_run": True},
+                  lambda r: f"{r['removed']} Resolved would go")
+            check("compact_clash_tests", "/clash/compact", {"test_name": "MCP smoke"},
+                  lambda r: f"{r['removed']} removed")
+            check("run_clash_test without wait", "/clash/run", {"names": ["MCP smoke"]},
+                  lambda r: r["finished"] is False or f"FAIL {r}")
+            for _ in range(600):   # other routes are refused until the run ends
+                h = json.loads(urllib.request.urlopen(BASE + "/health", timeout=30).read().decode("utf-8"))
+                if not h.get("uiBusy"):
+                    break
+                time.sleep(0.5)
+            check("run without wait finished (uiBusy false)", "/clash/summary", {"test_name": "MCP smoke"},
+                  lambda r: f"lastRun {r['tests'][0]['lastRun']}")
     else:
         print("[SKIP] no clashes found between the two files: result-level checks skipped")
     check("export_clash_report csv", "/clash/report", {"path": j("report.csv")},

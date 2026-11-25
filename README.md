@@ -14,7 +14,7 @@
 > camera settings, CSV export of properties and Hide / Hide Unselected / Unhide on
 > Navisworks' own calls — nothing walks the whole model any more.
 
-> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides and visibility, model position, CSV export of properties — 84 tools through the Model Context Protocol.
+> Control Autodesk Navisworks from Claude — model files, clash detection and grouping, selection sets, search sets, viewpoints, properties, view capture and sectioning, color overrides and visibility, model position, CSV export of properties — 85 tools through the Model Context Protocol.
 
 <p align="center">
   <img src="docs/architecture.svg" alt="Architecture diagram" width="100%">
@@ -163,7 +163,7 @@ If the handler throws, the addin returns HTTP 500 with `{error, detail, path}`, 
 
 Most calls answer in milliseconds and time out after 30 s. Opening, appending, refreshing and saving models, running clash tests, auto-grouping and reports may take up to an hour on large projects.
 
-## Available tools (84)
+## Available tools (85)
 
 Argument names below are the **MCP tool argument names** (what the LLM sees). The addin's HTTP body uses some shorter aliases — the server does the rename.
 
@@ -225,7 +225,7 @@ Zoom and section box warn when the items span kilometres — usually files in di
 | `list_clash_tests` | — | All clash tests with status and result count. |
 | `create_clash_test` | `name` | Create a Hard / Clearance / Duplicate test. Optionally attach `selectionA` / `selectionB` to populate sides. |
 | `set_clash_selections` | `test_name` | Attach selection-sets / search-sets to A and/or B on an existing test (preserves history). |
-| `run_clash_test` | — | Run one test by `test_name`, or all tests if omitted. |
+| `run_clash_test` | — | Run (update) one test (`test_name`), a list (`test_names`) or all tests; tests in folders too. Starts the run and answers at once; other commands are refused until it ends (follow with `health_check` → `uiBusy`, then `get_clash_summary`); `wait: true` blocks until done. |
 | `get_clash_results` | `test_name` | Results with status, distance, group, assignee, centre, both items and their model files. |
 | `get_clash_summary` | — | Per test: last run, total, counts by status, groups. |
 | `delete_clash_test` | `test_name` | Remove a test by name. |
@@ -249,6 +249,7 @@ Zoom and section box warn when the items span kilometres — usually files in di
 | `list_clash_groups` | `test_name` | All groups in a test, with each group's status and child clash names. |
 | `add_clashes_to_group` | `test_name`, `group_name`, `clash_names[]` | Move ungrouped clash results into an existing group. Per-clash interleaved copy-then-remove avoids the Navisworks GUID-uniqueness constraint. |
 | `group_ungrouped_clashes` | — | Move every ungrouped result of one test (`test_name`) or of all tests into one group per test: the group called `group_name` (default `New Group`), else the test's only group, else a new `group_name` group. Results are moved (`TestsMove`), not copied: status, comments and history stay. `dry_run` only reports. |
+| `compact_clash_tests` | — | Navisworks *Compact*: remove the Resolved results of one test, a list (`test_names`) or all tests, also inside groups. Reports before / removed / after and groups left empty per test; `dry_run` only reports. |
 | `set_clash_group_status` | `test_name`, `group_name`, `status` | Mark a group (and propagate to its child clashes) as `New`, `Active`, `Reviewed`, `Approved`, or `Resolved`. Uses `TestsEditResultStatus` under the hood. |
 | `delete_clash_group` | `test_name`, `group_name` | Remove a group (and its child results) from a test. |
 

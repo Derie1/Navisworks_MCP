@@ -329,6 +329,82 @@ namespace NavisworksMcpAddin
             };
         }
 
+        // Compact = Navisworks' own TestsCompactTest: removes the Resolved results
+        // of a test (also those inside groups). Body: test_name / test_names
+        // (none = all tests), dry_run. Reports per test what was (or would be)
+        // removed and how many groups are left empty.
+        public static object ClashCompact(Dictionary<string, object> body)
+        {
+            var doc = RequireDocument();
+            DocumentClash dc = doc.GetClash();
+            var names = GetStringList(body, "test_names");
+            string one = GetString(body, "test_name", null);
+            if (!string.IsNullOrEmpty(one)) names.Insert(0, one);
+            bool dryRun = GetBool(body, "dry_run", false);
+
+            var refs = new List<SavedItemReference>();
+            if (names.Count == 0)
+            {
+                refs.AddRange(EnumerateClashTests(dc.TestsData.Value.TestsRoot).Select(t => dc.TestsData.CreateReference(t)));
+            }
+            else
+            {
+                var missing = new List<string>();
+                foreach (string n in names.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    ClashTest t = FindClashTest(dc, n);
+                    if (t == null) missing.Add(n); else refs.Add(dc.TestsData.CreateReference(t));
+                }
+                if (missing.Count > 0) throw new InvalidOperationException("clash test(s) not found: " + string.Join(", ", missing));
+            }
+
+            var details = new List<object>();
+            int totalRemoved = 0, testsChanged = 0;
+            using (Transaction tx = dryRun ? null : doc.BeginTransaction("Compact clash tests"))
+            {
+                foreach (SavedItemReference r in refs)
+                {
+                    var test = (ClashTest)dc.TestsData.ResolveReference(r);
+                    string testName = test.DisplayName;
+                    int before = 0, resolved = 0;
+                    WalkResults(test, null, (cr, g) => { before++; if (cr.Status == ClashResultStatus.Resolved) resolved++; });
+                    if (resolved == 0) continue;
+
+                    int after = before - resolved, emptyGroups = 0;
+                    if (!dryRun)
+                    {
+                        dc.TestsData.TestsCompactTest(test);
+                        test = (ClashTest)dc.TestsData.ResolveReference(r);
+                        after = 0;
+                        WalkResults(test, null, (cr, g) => after++);
+                    }
+                    emptyGroups = CountEmptyGroups(test, dryRun);
+                    totalRemoved += before - after;
+                    testsChanged++;
+                    details.Add(new { test = testName, before, removed = before - after, after, emptyGroups });
+                }
+                tx?.Commit();
+            }
+            return new { dry_run = dryRun, tests = testsChanged, removed = totalRemoved, details };
+        }
+
+        // Groups without results; with predict=true, also groups that hold only Resolved results.
+        private static int CountEmptyGroups(GroupItem node, bool predict)
+        {
+            int n = 0;
+            foreach (SavedItem child in node.Children)
+            {
+                if (child is ClashResultGroup g)
+                {
+                    bool empty = true;
+                    WalkResults(g, null, (cr, x) => { if (!predict || cr.Status != ClashResultStatus.Resolved) empty = false; });
+                    if (empty) n++;
+                }
+                else if (child is GroupItem gi && !(child is ClashResult)) n += CountEmptyGroups(gi, predict);
+            }
+            return n;
+        }
+
         public static object ClashReport(Dictionary<string, object> body)
         {
             var doc = RequireDocument();
